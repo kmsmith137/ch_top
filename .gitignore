@@ -1,0 +1,15 @@
+# Inner repos: managed as plain clones via git_repositories.toml, not tracked.
+/ksgpu/
+/pirate/
+
+# Per-workspace, machine-specific, generated files.
+.venv/
+.direnv/
+.envrc
+.claude/settings.json
+.claude/settings.local.json
+
+# Ephemeral.
+plans/
+__pycache__/
+*.pyc

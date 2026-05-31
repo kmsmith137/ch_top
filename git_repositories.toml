@@ -1,0 +1,20 @@
+# Each repo is cloned into ch_dev/<name> and worktree-added into each ch_X.
+# ch_dev assumes your conda toolchain env is already active (see README.md).
+#
+# REMINDER: init_toplevel.py / init_worktree.py / delete_worktree.py are
+# manifest-driven -- they pick up new repos listed here automatically.
+# init_venv.py is NOT: it hardcodes the per-repo build + editable-install
+# recipe (make order, --no-build-isolation, smoke tests). When you add a repo
+# below, you MUST also add its build + 'pip install -e' step to init_venv.py,
+# or that repo will be silently missing from every venv. (init_venv.py prints a
+# warning for any manifest repo it does not build.)
+#
+# Order matters: list dependencies before dependents (ksgpu before pirate).
+
+[ksgpu]
+url    = "github:kmsmith137/ksgpu"    # uses your ~/.ssh/config 'github' alias
+branch = "chord"
+
+[pirate]
+url    = "github:kmsmith137/pirate"   # has submodule asdf-cxx (auto-handled)
+branch = "kms"

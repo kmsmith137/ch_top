@@ -1,0 +1,11 @@
+# Overlay this workspace's venv on top of the conda env that ~/.bashrc already
+# activated. The venv's bin goes first on PATH. ch_dev does not name or activate
+# the conda env -- see README.md. ($PWD is the directory of this .envrc.)
+export VIRTUAL_ENV="$PWD/.venv"
+PATH_add "$PWD/.venv/bin"
+
+# Drop the current directory from sys.path so a 'ksgpu/' (or 'pirate/') subdir
+# of the workspace root cannot shadow the editable-installed packages. See
+# README.md "cwd shadowing". (Any non-empty value enables it; unset to disable
+# -- do NOT use =0, which is non-empty and therefore still enables it.)
+export PYTHONSAFEPATH=1

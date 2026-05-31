@@ -1,0 +1,19 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "filesystem": {
+      "denyRead": ["~/.ssh", "~/.aws", "~/.config/gh", "~/.gnupg"],
+      "allowWrite": [
+        "/dev/nvidia0", "/dev/nvidia1", "/dev/nvidiactl",
+        "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools",
+        "/tmp"
+      ]
+    },
+    "network": { "allowedDomains": [] }
+  },
+  "env": {
+    "VIRTUAL_ENV": "{{WORKTREE}}/.venv",
+    "PATH": "{{WORKTREE}}/.venv/bin:${PATH}",
+    "PYTHONSAFEPATH": "1"
+  }
+}
