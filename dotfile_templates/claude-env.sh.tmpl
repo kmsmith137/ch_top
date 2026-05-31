@@ -1,0 +1,11 @@
+# Sourced by Claude Code before EVERY Bash command, via the CLAUDE_ENV_FILE
+# variable that .envrc exports when you `cd` into this worktree (so it only
+# takes effect if you launch `claude` from here). Claude sources ~/.bashrc
+# (your conda activation) once at session start and does not persist env between
+# commands, so the per-worktree venv must be re-applied for each command -- this
+# file does that, prepending the venv on top of conda. The literal $PATH below
+# is expanded by the shell at source time (after conda is already on PATH), so
+# the venv wins. settings.json "env" cannot do this (it does not expand $PATH).
+export VIRTUAL_ENV="{{WORKTREE}}/.venv"
+export PATH="{{WORKTREE}}/.venv/bin:$PATH"
+export PYTHONSAFEPATH=1

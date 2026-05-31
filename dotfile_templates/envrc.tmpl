@@ -9,3 +9,9 @@ PATH_add "$PWD/.venv/bin"
 # README.md "cwd shadowing". (Any non-empty value enables it; unset to disable
 # -- do NOT use =0, which is non-empty and therefore still enables it.)
 export PYTHONSAFEPATH=1
+
+# Point Claude Code at this worktree's env file. Claude sources it before every
+# Bash command, which is what activates the venv for an agent launched here --
+# settings.json "env" cannot prepend to PATH (it does not expand ${PATH}). See
+# README.md "Claude Code + the venv".
+export CLAUDE_ENV_FILE="$PWD/.claude/env.sh"

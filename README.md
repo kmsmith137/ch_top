@@ -64,6 +64,26 @@ login shell where direnv has not fired), either run from inside a repo dir
 with `PYTHONSAFEPATH=1`. Any non-empty value enables it, so to turn it off you
 must *unset* it -- `PYTHONSAFEPATH=0` still enables it.
 
+## Claude Code + the venv
+
+Activating the per-worktree venv for an *agent* is trickier than for a human.
+Claude Code sources `~/.bashrc` (your conda activation) once at session start,
+does NOT persist env between Bash commands, and its `settings.json` `env` values
+are NOT variable-expanded -- so `"PATH": ".venv/bin:${PATH}"` gets set to that
+literal string and clobbers PATH (dropping `~/.local/bin`, where `claude`
+lives). The mechanism that works is Claude's **`CLAUDE_ENV_FILE`**: a script
+Claude sources before every Bash command, where `$PATH` *does* expand. So:
+
+- `.envrc` exports `CLAUDE_ENV_FILE="$PWD/.claude/env.sh"`.
+- `.claude/env.sh` (generated) does `export PATH="<worktree>/.venv/bin:$PATH"`
+  (plus `VIRTUAL_ENV`, `PYTHONSAFEPATH`). It is sourced *after* bashrc's conda
+  activation, so the venv wins.
+
+**Launch `claude` from the worktree** (`cd ~/ch_X` with direnv active, then
+`claude`) so it inherits `CLAUDE_ENV_FILE`. Verify inside the agent with
+`which python` -> it should be `~/ch_X/.venv/bin/python`. (`settings.json` still
+sets `VIRTUAL_ENV` + `PYTHONSAFEPATH`, but it cannot set PATH.)
+
 ## Files
 
 - `git_repositories.toml` -- manifest of repos + branches. The git scripts are

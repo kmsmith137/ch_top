@@ -101,10 +101,12 @@ def venv_env(workdir: Path) -> dict:
 
 
 def render_dotfiles(workdir: Path, *, sandbox: bool) -> None:
-    """Render .envrc (always) and, if sandbox, .claude/settings.json into workdir.
+    """Render the per-workspace dotfiles into workdir.
 
-    Only substitution is {{WORKTREE}} -> absolute workdir path. The literal
-    ${PATH} in the settings template is left untouched (Claude expands it).
+    Always writes .envrc and .claude/env.sh; writes .claude/settings.json only
+    when sandbox=True. Substitutes {{WORKTREE}} -> absolute workdir path; a
+    literal $PATH in env.sh is left untouched (the shell expands it when Claude
+    sources the file before each Bash command).
     """
     workdir = Path(workdir).resolve()
 
@@ -112,10 +114,17 @@ def render_dotfiles(workdir: Path, *, sandbox: bool) -> None:
     (workdir / ".envrc").write_text(envrc)
     info(f"wrote {workdir / '.envrc'}  (then run: direnv allow {workdir})")
 
+    claude_dir = workdir / ".claude"
+    claude_dir.mkdir(exist_ok=True)
+
+    # env.sh is sourced by Claude before each Bash command (via CLAUDE_ENV_FILE,
+    # which .envrc exports); it prepends the venv to PATH -- the one thing
+    # settings.json 'env' cannot do, since it does not expand ${PATH}.
+    env_sh = (TEMPLATES / "claude-env.sh.tmpl").read_text().replace("{{WORKTREE}}", str(workdir))
+    (claude_dir / "env.sh").write_text(env_sh)
+    info(f"wrote {claude_dir / 'env.sh'}")
+
     if sandbox:
-        settings = (TEMPLATES / "claude-settings.tmpl").read_text()
-        settings = settings.replace("{{WORKTREE}}", str(workdir))
-        claude_dir = workdir / ".claude"
-        claude_dir.mkdir(exist_ok=True)
+        settings = (TEMPLATES / "claude-settings.tmpl").read_text().replace("{{WORKTREE}}", str(workdir))
         (claude_dir / "settings.json").write_text(settings)
         info(f"wrote {claude_dir / 'settings.json'}")
