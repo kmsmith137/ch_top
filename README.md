@@ -6,22 +6,92 @@ worktrees for running coding agents.
 
 Full design rationale: `plans/multi_agent_workspace.md`.
 
-## Assumptions / prerequisites
+## Setup (one-time, per machine)
 
-- **Conda toolchain env, activated externally.** Nothing in this repo names or
-  activates a conda env. You must have your conda env (cuda/nvcc, cupy, grpc,
-  yaml-cpp, asdf, pybind11, ...) active in every shell -- load it in
-  `~/.bashrc`. The scripts seed each `.venv` from whatever `python` is active.
-- **direnv**, on PATH in every shell (prefer an env-independent location like
-  `~/.local/bin`, not a conda env), with the hook in `~/.bashrc` *after* your
-  `conda activate` line:
+These are the things `init_*.py` do NOT do -- the scripts assume a machine
+already set up like this. Steps 3-4 (sandbox) are optional; skip them if you
+don't use the Claude Code sandbox.
 
-      eval "$(direnv hook bash)"
+**Prerequisites (must already be present):**
 
-- **A GPU + CUDA toolchain** (the build compiles CUDA and runs GPU tests).
-- For sandboxing: **bubblewrap**, **socat**, and the seccomp helper
-  (`@anthropic-ai/sandbox-runtime`); on Ubuntu 24.04 also the AppArmor `bwrap`
-  profile. See `plans/multi_agent_workspace.md` Section 7.
+- An **NVIDIA GPU + CUDA toolchain** (`nvcc`): the build compiles CUDA and the
+  tests run on the GPU.
+- **`git` >= 2.40** (for worktree+submodule support) and **SSH access to the
+  GitHub repos**: the manifest clones via the `github:` host alias in
+  `~/.ssh/config`, so have your key loaded in an ssh-agent -- needed so
+  `init_toplevel.py` can clone and so you can `git push`. (Pushes are always done
+  by you, never by a sandboxed agent.)
+- **`node`/`npm`** -- only needed for the sandbox seccomp helper (step 3).
+- **`~/.local/bin` on `$PATH`, ahead of `/usr/bin`** -- the `claude` binary lives
+  there, and direnv and the bwrap shim get installed there below.
+
+**1. Conda toolchain env.** Create a conda env with the compiled dependencies
+(cupy, cuda-nvcc, cublas/cufft/curand, mathdx, grpc-cpp + grpcio + grpcio-tools +
+protoletariat, yaml-cpp, asdf, pybind11, argcomplete, setuptools=80, ...). The
+authoritative `conda create` line lives in `ksgpu/README.md` and
+`pirate/notes/install.md` (or use `pirate/environment.yml`); roughly:
+
+    conda create -c conda-forge -n ENVNAME \
+      grpc-cpp grpcio grpcio-tools protoletariat \
+      cupy mathdx pybind11 yaml-cpp asdf argcomplete setuptools=80
+
+Nothing in ch_dev names this env; the scripts seed each `.venv` from whatever
+`python` is active -- so activate it in `~/.bashrc`:
+
+    conda activate ENVNAME
+
+**2. direnv.** Install it somewhere on `$PATH` in *every* shell, independent of
+which conda env is active (do NOT put it inside a conda env -- it disappears when
+a different env, or none, is active):
+
+    sudo apt-get install direnv        # or drop the static binary into ~/.local/bin
+
+Add the hook to `~/.bashrc`, AFTER your `conda activate` line:
+
+    eval "$(direnv hook bash)"
+
+(Each worktree's `.envrc` then needs a one-time `direnv allow ~/ch_X` -- see
+Quick start.)
+
+**3. Claude Code sandbox dependencies** (optional). Install bubblewrap (the
+sandbox), socat (network proxy), and the seccomp filter (Unix-socket blocking,
+which closes the `$SSH_AUTH_SOCK` / `docker.sock` hole):
+
+    sudo apt-get install bubblewrap socat
+    sudo npm install -g @anthropic-ai/sandbox-runtime
+
+On Ubuntu 24.04+ the default AppArmor policy blocks the unprivileged user
+namespaces bwrap needs. If `sysctl kernel.apparmor_restrict_unprivileged_userns`
+returns `1`, add a profile granting bwrap the `userns` capability:
+
+    sudo tee /etc/apparmor.d/bwrap >/dev/null <<'EOF'
+    abi <abi/4.0>,
+    include <tunables/global>
+    profile bwrap /usr/bin/bwrap flags=(unconfined) {
+      userns,
+      include if exists <local/bwrap>
+    }
+    EOF
+    sudo systemctl reload apparmor
+
+Verify: run `/sandbox` in Claude. If it shows the normal Mode / Overrides /
+Config tabs (and NOT a Dependencies-only view), all deps are present.
+
+**4. GPU inside the sandbox** (optional). Claude's sandbox builds a fresh `/dev`
+without the `/dev/nvidia*` nodes, so CUDA fails inside it, and there is no
+`settings.json` knob to fix it. Install the **no-root** `bwrap` shim
+(`misc/bwrap_shim`), which Claude picks up via `$PATH` (it spawns `bwrap`
+unqualified) and which binds the GPU nodes into the sandbox. Full story:
+`plans/gpu_solution1.md`.
+
+    install -m 0755 misc/bwrap_shim ~/.local/bin/bwrap
+    hash -r; command -v bwrap          # must print ~/.local/bin/bwrap
+
+Then launch `claude` from the worktree and `nvidia-smi` / GPU code work in the
+sandbox. (cupy's kernel cache wants a writable dir; the sandbox makes `/tmp`
+writable, so set `export CUPY_CACHE_DIR=/tmp/cupy_cache` in the agent env if
+needed. Security note: this exposes the GPU to every bubblewrap sandbox you run;
+filesystem/network/secret isolation is unchanged.)
 
 ## Layout
 
@@ -98,8 +168,10 @@ sets `VIRTUAL_ENV` + `PYTHONSAFEPATH`, but it cannot set PATH.)
   `.venv` overlay. Called by the two scripts above; also runnable standalone.
 - `delete_worktree.py NAME [--force]` -- tear a feature workspace down.
 - `ch_dev_helpers.py` -- shared helpers (manifest, paths, dotfile rendering).
-- `dotfile_templates/` -- source templates for `.envrc` and the per-worktree
-  sandbox `.claude/settings.json`.
+- `dotfile_templates/` -- source templates for `.envrc`, `.claude/env.sh`, and
+  the per-worktree sandbox `.claude/settings.json`.
+- `misc/bwrap_shim` -- no-root GPU shim for the Claude Code sandbox (Setup
+  step 4; see `plans/gpu_solution1.md`).
 
 ## Quick start
 

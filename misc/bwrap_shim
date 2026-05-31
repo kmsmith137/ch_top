@@ -1,0 +1,37 @@
+#!/bin/bash
+# bwrap shim: make the NVIDIA GPU available inside bubblewrap sandboxes (e.g.
+# Claude Code's). The sandbox builds a fresh /dev with `--dev /dev`, which hides
+# the host's /dev/nvidia* nodes, so CUDA sees no devices. We inject
+# `--dev-bind-try /dev/nvidiaX /dev/nvidiaX` for each GPU node immediately before
+# the first `--` (the bwrap option/command separator), i.e. AFTER `--dev /dev`,
+# only when this bwrap call actually creates a fresh /dev.
+#
+# Install one of two ways (see README "Setup" / plans/gpu_solution1.md):
+#   - no root:  install -m755 misc/bwrap_shim ~/.local/bin/bwrap   (PATH-shadow)
+#   - system:   dpkg-divert /usr/bin/bwrap -> /usr/bin/bwrap.distrib, install here
+# The shim auto-detects the real bwrap: bwrap.distrib (diverted) else
+# /usr/bin/bwrap. A recursion guard refuses to exec ourselves.
+REAL=/usr/bin/bwrap.distrib
+[ -x "$REAL" ] || REAL=/usr/bin/bwrap
+if [ "$REAL" -ef "$0" ]; then
+  echo "bwrap_shim: real bwrap not found (expected /usr/bin/bwrap.distrib)" >&2
+  exit 127
+fi
+
+binds=()
+for d in /dev/nvidia0 /dev/nvidia1 /dev/nvidia2 /dev/nvidia3 \
+         /dev/nvidiactl /dev/nvidia-modeset /dev/nvidia-uvm /dev/nvidia-uvm-tools; do
+  [ -e "$d" ] && binds+=(--dev-bind-try "$d" "$d")
+done
+[ -d /dev/nvidia-caps ] && binds+=(--dev-bind-try /dev/nvidia-caps /dev/nvidia-caps)
+
+out=(); injected=0; saw_dev=0
+for a in "$@"; do
+  [ "$a" = "--dev" ] && saw_dev=1
+  if [ "$a" = "--" ] && [ "$injected" = 0 ] && [ "$saw_dev" = 1 ]; then
+    out+=("${binds[@]}"); injected=1
+  fi
+  out+=("$a")
+done
+
+exec "$REAL" "${out[@]}"
