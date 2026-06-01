@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""`git status` across all repos in a ch_dev workspace.
+"""`git status` across all repos in a ch_dev workspace, plus a branch-relation
+summary.
 
-    git-status.py [-- GIT_STATUS_ARGS...]
+    git-status.py [GIT_STATUS_ARGS...]
 
 Runs `git status` in the workspace root (ch_dev / ch_<feature>) and in each
 manifest repo subdir (ksgpu, pirate, ...), under a per-repo header. Extra args
 are passed through to git, e.g. `git-status.py -s` or `git-status.py -sb`.
+
+Then prints, for each repo, how the feature-worktree branch relates to that
+repo's integration branch (the one checked out in the main worktree), e.g.
+'pirate/ch_evrb is 2 commits ahead of pirate/kms'. Run from the toplevel ch_dev
+this covers every feature worktree; run from a feature worktree it covers only
+that worktree's own branch.
 
 Exits with the worst git exit code across the repos.
 """
@@ -24,7 +31,14 @@ import ch_dev_helpers as wl
 
 
 def main() -> None:
-    raise SystemExit(wl.run_git_all(["status", *sys.argv[1:]]))
+    rc = wl.run_git_all(["status", *sys.argv[1:]])
+    relations = wl.branch_relations()
+    if relations:
+        print("==================== branch relations ====================")
+        for line in relations:
+            print(line)
+        print()
+    raise SystemExit(rc)
 
 
 if __name__ == "__main__":

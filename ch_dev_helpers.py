@@ -111,6 +111,80 @@ def run_git_all(git_args, workdir=ROOT) -> int:
     return worst
 
 
+def _parse_worktrees(repo_path):
+    """[(worktree_path: Path, branch: str|None)] for repo_path, main worktree first.
+
+    branch is None for a detached HEAD. Uses `git worktree list --porcelain`,
+    whose first block is always the repo's main worktree.
+    """
+    out = capture(["git", "-C", str(repo_path), "worktree", "list", "--porcelain"])
+    entries, cur = [], None
+    for line in out.splitlines():
+        if line.startswith("worktree "):
+            cur = [Path(line[len("worktree "):]).resolve(), None]
+            entries.append(cur)
+        elif line.startswith("branch ") and cur is not None:
+            cur[1] = line[len("branch refs/heads/"):]
+    return [(p, b) for p, b in entries]
+
+
+def _ahead_behind(repo_path, base, branch):
+    """(ahead, behind) of `branch` relative to `base`, or None if uncomputable.
+
+    ahead  = commits in branch not in base; behind = commits in base not in branch.
+    """
+    res = subprocess.run(
+        ["git", "-C", str(repo_path), "rev-list", "--left-right", "--count",
+         f"{base}...{branch}"],
+        capture_output=True, text=True,
+    )
+    if res.returncode != 0:
+        return None
+    behind, ahead = (int(n) for n in res.stdout.split())
+    return ahead, behind
+
+
+def _relation_phrase(ahead, behind):
+    plural = lambda k: f"{k} commit" + ("" if k == 1 else "s")
+    if ahead == 0 and behind == 0:
+        return "up-to-date with"
+    if behind == 0:
+        return f"{plural(ahead)} ahead of"
+    if ahead == 0:
+        return f"{plural(behind)} behind"
+    return f"{plural(ahead)} ahead and {plural(behind)} behind"
+
+
+def branch_relations(workdir=ROOT):
+    """Lines describing how each feature worktree's branch relates to its repo's
+    integration branch (the branch checked out in that repo's main worktree).
+
+    For each repo in the workspace, X = the main-worktree branch (main/chord/kms)
+    and Y = a feature-worktree branch. Run from the toplevel ch_dev, covers every
+    feature worktree of every repo; run from a feature worktree, only that
+    worktree's own branch. Returns formatted strings like
+    'pirate/ch_evrb is 2 commits ahead of pirate/kms'.
+    """
+    workdir = Path(workdir).resolve()
+    toplevel = (workdir / ".git").is_dir()
+    lines = []
+    for _, path in workspace_repos(workdir):
+        wts = _parse_worktrees(path)
+        if not wts or wts[0][1] is None:
+            continue  # repo with a detached main worktree -- nothing to compare to
+        main_path, base = wts[0]
+        repo = main_path.name
+        if toplevel:
+            targets = [(p, b) for p, b in wts[1:] if b is not None]
+        else:
+            targets = [(p, b) for p, b in wts if p == path and b is not None]
+        for _wt_path, branch in targets:
+            ab = _ahead_behind(path, base, branch)
+            rel = _relation_phrase(*ab) if ab else "cannot be compared to"
+            lines.append(f"{repo}/{branch} is {rel} {repo}/{base}")
+    return lines
+
+
 def base_python() -> str:
     """Path to the *base* (non-venv) interpreter, i.e. the conda env's python.
 
