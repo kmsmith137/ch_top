@@ -1,36 +1,39 @@
 # ch_dev -- personal multi-repo, multi-agent dev workspace
 
-Personal "container" repo holding the scripts that manage a multi-repo software
-package (`ksgpu` + `pirate`) and spin up isolated per-feature worktrees for
-running coding agents.
+## Introduction
 
-The package spans three git repos, each with its own integration branch:
+This repo is work in progress and very rough around the edges!
+It's my personal system for organizing CHORD development into multiple
+git worktrees, with a small number (usually one) of LLM agents per worktree.
 
-    ch_dev    this repo -- management scripts          (branch main)
-    ksgpu     GPU C++/CUDA core utils                   (branch chord)
-    pirate    real-time FRB search engine               (branch kms)
+Features:
 
-`ksgpu` and `pirate` are managed as plain clones listed in a manifest
-(`git_repositories.toml`), NOT as git submodules or subtrees -- a manifest keeps
-each repo a normal, independent checkout you can branch/commit/push directly,
-without the foot-guns of submodule pointers or subtree merges.
+ - Orchestration scripts for creating/deleting worktrees with pre-initialized
+   dotfiles (`.envrc`, `.claude/*`), and moving commits around.
+ 
+ - Allows multiple git repos in each worktree (currently `ch_dev`, `ksgpu`, `pirate`).
+ 
+ - Each worktree has its own venv, which is automatically activated/deactivated.
+   (For humans, this is done with `direnv`. For LLMs, this is done with `.claude/*`.)
+ 
+ - Sandboxing: per-worktree agents run with os-level filesystem sandboxing,
+   and therefore don't need to request permission very often.
 
 ## Layout
 
-    ch_dev/                  this repo (branch main); management scripts
-    ch_dev/ksgpu             plain clone, branch chord   (gitignored)
-    ch_dev/pirate            plain clone, branch kms     (gitignored)
-    ../ch_<feature>/         a feature workspace (sibling of ch_dev)
-    ../ch_<feature>/ksgpu    worktree of ksgpu  on branch <feature>
-    ../ch_<feature>/pirate   worktree of pirate on branch <feature>
+Base tree:
 
-`ch_dev/ksgpu` and `ch_dev/pirate` are the "toplevel" checkouts, sitting on the
-integration branches. A **feature workspace** `../ch_<feature>` is a sibling
-directory that is itself a git worktree of `ch_dev`, containing a git worktree of
-each repo (all on a new branch `<feature>`), plus a per-workspace `.venv`,
-`.envrc`, and `.claude/` (sandbox config). Worktrees share each repo's object
-store, so a commit in a worktree is immediately visible to the toplevel checkout
--- no pushing between them.
+  ~/ch_dev/        -> plain clone pointed at github remote (main branch)
+  ~/ch_dev/ksgpu   -> plain clone pointed at github remote (chord branch)
+  ~/ch_dev/pirate  -> plain clone pointed at github remote (kms branch)
+
+Worktree (named `ch_test` for concreteness):
+
+  ~/ch_test/          -> git worktree pointed at ~/ch_dev
+  ~/ch_test/ksgpu     -> git worktree pointed at ~/ch_dev/ksgpu
+  ~/ch_test/pirate    -> git worktree pointed at ~/ch_dev/pirate
+
+Note that we don't use git submodules or git subtrees.
 
 ## Quick start
 
@@ -47,7 +50,11 @@ store, so a commit in a worktree is immediately visible to the toplevel checkout
     ./git-status.py                          # status + per-worktree branch relations
     ./git-diff.py [--stat|--cached|...]
 
-    # tear down:
+    # move commits between feature and integration branches (all 3 repos):
+    cd ../ch_myfeature && ./git-rebase-down.py   # sync down: rebase onto integration
+    cd ~/ch_dev && ./git-merge-up.py ch_myfeature  # land up: fast-forward integration
+
+    # tear down (after landing):
     python3 ~/ch_dev/delete_worktree.py ch_myfeature
 
 This assumes the machine is already set up as described next. `init_*.py` are
