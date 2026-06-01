@@ -204,6 +204,26 @@ retry. After a successful land, tear down:
 (`branch -d`, lowercase, refuses to delete an unmerged branch -- a free safety
 check that the land really happened.)
 
+*Conflicts during rebase-down.* Rebase replays the feature's commits one at a
+time onto the integration branch, so a conflict stops at the FIRST offending
+commit (you may hit several in turn, one resolution each -- unlike merge's single
+combined resolution). `git-rebase-down.py` does not auto-resolve: it prints
+git's conflict message, leaves that repo in the rebase-in-progress state, and
+exits non-zero (a conflict in one repo does NOT roll back repos that already
+rebased cleanly). Finish by hand, with plain git, in the repo it stopped in:
+
+    cd ~/ch_<feature>/<repo>         # the repo named in the error
+    # edit the conflicted files (look for <<<<<<< markers), then:
+    git add <resolved-files>
+    git rebase --continue            # replays the next commit; repeat if it conflicts
+    # or, to bail out completely (returns the branch to its pre-rebase state):
+    git rebase --abort
+
+Do NOT re-run `./git-rebase-down.py` to resume -- it would try to start a fresh
+rebase, which git refuses mid-rebase. Use `git rebase --continue`/`--abort`
+directly. `git rebase --abort` is always safe: a rebase is fully undoable until
+it finishes, so it is safe to attempt one just to see the conflicts.
+
 **Pushing / fetching is done by you, outside the sandbox.** The sandbox denies
 `~/.ssh` and network egress, so the agent commits locally only; you `git push` /
 `git fetch` from your own shell when ready.
