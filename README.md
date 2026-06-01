@@ -149,6 +149,10 @@ run on the GPU.
   pass through to git). `git-status.py` also prints how each worktree branch
   relates to its integration branch, e.g. `pirate/ch_evrb is 2 commits ahead of
   pirate/kms`.
+- `git-rebase-down.py [--dry-run]` -- in a WORKTREE: rebase this feature's branch
+  onto each repo's integration branch (sync down). `git-merge-up.py FEATURE
+  [--dry-run] [--no-ff]` -- in the TOPLEVEL: fast-forward FEATURE onto each repo's
+  integration branch (land up). See "Branch workflow" below.
 - `ch_dev_helpers.py` -- shared helpers (manifest, paths, dotfile rendering,
   the multi-repo git logic).
 - `dotfile_templates/` -- source templates for `.envrc`, `.claude/env.sh`, and
@@ -167,6 +171,31 @@ breaks venv activation for the agent (Appendix A).
 history (no inter-worktree push). Commit per-repo as usual, or use `git-status.py`
 to see all 3 at once. In a sandboxed worktree, `git commit` works without a
 prompt (Appendix D).
+
+**Branch workflow (rebase-then-fast-forward).** Each feature is the same branch
+name across all 3 repos; the integration branches are `main`/`chord`/`kms`. Two
+helpers move commits between a feature branch and its integration branch, keeping
+history linear (feature commits land individually, no merge bubbles). They are
+the inverse of each other and refuse to run on the wrong side:
+
+    # sync down -- in the worktree: rebase the feature branch onto latest
+    # integration, per repo. Run whenever an integration branch has moved.
+    cd ~/ch_<feature> && ./git-rebase-down.py        # --dry-run to preview
+
+    # land up -- in the toplevel: fast-forward the feature onto each integration
+    # branch (only after a clean rebase-down).
+    cd ~/ch_dev && ./git-merge-up.py ch_<feature>    # --dry-run to preview
+
+Both skip repos that need nothing (`git-status.py` shows which do). `--ff-only`
+(the default for `git-merge-up.py`) refuses rather than create a merge commit if
+the integration branch moved since you rebased -- just rebase-down again and
+retry. After a successful land, tear down:
+
+    python3 ~/ch_dev/delete_worktree.py ch_<feature>
+    for r in . ksgpu pirate; do git -C ~/ch_dev/$r branch -d ch_<feature>; done
+
+(`branch -d`, lowercase, refuses to delete an unmerged branch -- a free safety
+check that the land really happened.)
 
 **Pushing / fetching is done by you, outside the sandbox.** The sandbox denies
 `~/.ssh` and network egress, so the agent commits locally only; you `git push` /
