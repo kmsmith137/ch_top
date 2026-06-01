@@ -10,6 +10,7 @@ correct conda toolchain env is already active in your shell (you load it in
 """
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import subprocess
@@ -88,6 +89,39 @@ def workspace_repos(workdir=ROOT):
         if (sub / ".git").exists():
             repos.append((name, sub))
     return repos
+
+
+def shared_git_dirs(workdir):
+    """Absolute shared `.git` common-dirs a `git commit` in this worktree writes.
+
+    A feature worktree's commits write to each repo's SHARED object store/refs,
+    which live in the *main* checkout (ch_dev/.git, ch_dev/ksgpu/.git,
+    ch_dev/pirate/.git) -- OUTSIDE the worktree, hence read-only under the sandbox
+    unless allowed. Resolve each repo's common dir via `git rev-parse
+    --git-common-dir` so this is correct regardless of layout. Returns absolute
+    path strings, deduped, in repo order. Empty for a non-worktree checkout
+    (commits then write inside the dir, already writable).
+    """
+    workdir = Path(workdir).resolve()
+    seen, dirs = set(), []
+    for _label, path in workspace_repos(workdir):
+        common = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "--git-common-dir"],
+            capture_output=True, text=True,
+        )
+        if common.returncode != 0:
+            continue
+        # --git-common-dir may be relative to the repo's gitdir; resolve it.
+        cdir = (path / common.stdout.strip()).resolve()
+        # Only interesting when it is OUTSIDE the worktree (the worktree itself is
+        # already writable). For a plain checkout the common dir is inside workdir.
+        if workdir in cdir.parents or cdir == workdir:
+            continue
+        s = str(cdir)
+        if s not in seen:
+            seen.add(s)
+            dirs.append(s)
+    return dirs
 
 
 def run_git_all(git_args, workdir=ROOT) -> int:
@@ -241,8 +275,21 @@ def render_dotfiles(workdir: Path, *, sandbox: bool) -> None:
     info(f"wrote {claude_dir / 'env.sh'}")
 
     if sandbox:
+        # A commit in this worktree writes to each repo's SHARED .git (in the
+        # main checkout, outside the worktree -> read-only under the sandbox).
+        # allowWrite those dirs so `git commit` needs no prompt, but denyWrite
+        # their hooks/ and config: those are code/settings that run in YOUR
+        # unsandboxed shell, and they sit outside the worktree so the sandbox's
+        # built-in hooks/config denial (which only scans the cwd) misses them.
+        # See README.md "Sandbox security".
+        gitdirs = shared_git_dirs(workdir)
+        allow = "".join(f',\n        {json.dumps(d)}' for d in gitdirs)
+        deny_items = [p for d in gitdirs for p in (f"{d}/hooks", f"{d}/config")]
+        deny = ", ".join(json.dumps(p) for p in deny_items)
         settings = ((TEMPLATES / "claude-settings.tmpl").read_text()
                     .replace("{{WORKTREE}}", str(workdir))
-                    .replace("{{UID}}", str(os.getuid())))
+                    .replace("{{UID}}", str(os.getuid()))
+                    .replace("{{SHARED_GITDIRS}}", allow)
+                    .replace("{{SHARED_GITDIR_DENY}}", deny))
         (claude_dir / "settings.json").write_text(settings)
         info(f"wrote {claude_dir / 'settings.json'}")
