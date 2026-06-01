@@ -71,6 +71,46 @@ def load_manifest() -> dict:
     return repos
 
 
+def workspace_repos(workdir=ROOT):
+    """Ordered (label, path) for every git repo in a workspace.
+
+    The workspace root itself comes first (labelled by its own dirname, e.g.
+    'ch_dev' or 'ch_evrb'), then each manifest repo subdir that exists ('ksgpu',
+    'pirate', ...). Subdirs that are missing (workspace not fully set up) are
+    skipped rather than erroring.
+    """
+    workdir = Path(workdir).resolve()
+    if not (workdir / ".git").exists():
+        die(f"{workdir} is not a git repo (run init_toplevel.py / init_worktree.py?)")
+    repos = [(workdir.name, workdir)]
+    for name in load_manifest():
+        sub = workdir / name
+        if (sub / ".git").exists():
+            repos.append((name, sub))
+    return repos
+
+
+def run_git_all(git_args, workdir=ROOT) -> int:
+    """Run `git <git_args>` in each workspace repo, under a per-repo header.
+
+    Returns the worst (max) git exit code. Color is enabled when stdout is a
+    terminal and suppressed when piped/redirected, so `git-diff.py | less` keeps
+    color while `git-diff.py > out.txt` stays plain.
+    """
+    color = "always" if sys.stdout.isatty() else "auto"
+    repos = workspace_repos(workdir)
+    worst = 0
+    for label, path in repos:
+        cmd = ["git", "-C", str(path), "-c", f"color.ui={color}", *git_args]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        worst = max(worst, res.returncode)
+        print(f"==================== {label}  ({path}) ====================")
+        body = (res.stdout if res.returncode == 0 else res.stdout + res.stderr).rstrip("\n")
+        print(body if body else "(no output)")
+        print()
+    return worst
+
+
 def base_python() -> str:
     """Path to the *base* (non-venv) interpreter, i.e. the conda env's python.
 
