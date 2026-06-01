@@ -104,9 +104,11 @@ def render_dotfiles(workdir: Path, *, sandbox: bool) -> None:
     """Render the per-workspace dotfiles into workdir.
 
     Always writes .envrc and .claude/env.sh; writes .claude/settings.json only
-    when sandbox=True. Substitutes {{WORKTREE}} -> absolute workdir path; a
-    literal $PATH in env.sh is left untouched (the shell expands it when Claude
-    sources the file before each Bash command).
+    when sandbox=True. Substitutes {{WORKTREE}} -> absolute workdir path and
+    {{UID}} -> this user's numeric UID (baked into the sandbox ssh-agent-socket
+    deny path, which is machine-specific). A literal $PATH in env.sh is left
+    untouched (the shell expands it when Claude sources the file before each
+    Bash command).
     """
     workdir = Path(workdir).resolve()
 
@@ -125,6 +127,8 @@ def render_dotfiles(workdir: Path, *, sandbox: bool) -> None:
     info(f"wrote {claude_dir / 'env.sh'}")
 
     if sandbox:
-        settings = (TEMPLATES / "claude-settings.tmpl").read_text().replace("{{WORKTREE}}", str(workdir))
+        settings = ((TEMPLATES / "claude-settings.tmpl").read_text()
+                    .replace("{{WORKTREE}}", str(workdir))
+                    .replace("{{UID}}", str(os.getuid())))
         (claude_dir / "settings.json").write_text(settings)
         info(f"wrote {claude_dir / 'settings.json'}")

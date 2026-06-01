@@ -77,21 +77,40 @@ returns `1`, add a profile granting bwrap the `userns` capability:
 Verify: run `/sandbox` in Claude. If it shows the normal Mode / Overrides /
 Config tabs (and NOT a Dependencies-only view), all deps are present.
 
-**4. GPU inside the sandbox** (optional). Claude's sandbox builds a fresh `/dev`
+**4. GPU inside the sandbox** (optional). Getting CUDA *compute* to work inside
+the sandbox takes two fixes -- one machine-wide (this step) and one per-worktree
+(baked into the templates, so `init_worktree.py` applies it for you). Full story
+and the security analysis: `plans/gpu_solution1.md`.
+
+*Barrier 1 (machine-wide): device nodes.* Claude's sandbox builds a fresh `/dev`
 without the `/dev/nvidia*` nodes, so CUDA fails inside it, and there is no
 `settings.json` knob to fix it. Install the **no-root** `bwrap` shim
 (`misc/bwrap_shim`), which Claude picks up via `$PATH` (it spawns `bwrap`
-unqualified) and which binds the GPU nodes into the sandbox. Full story:
-`plans/gpu_solution1.md`.
+unqualified) and which binds the GPU nodes into the sandbox:
 
     install -m 0755 misc/bwrap_shim ~/.local/bin/bwrap
     hash -r; command -v bwrap          # must print ~/.local/bin/bwrap
 
-Then launch `claude` from the worktree and `nvidia-smi` / GPU code work in the
-sandbox. (cupy's kernel cache wants a writable dir; the sandbox makes `/tmp`
-writable, so set `export CUPY_CACHE_DIR=/tmp/cupy_cache` in the agent env if
-needed. Security note: this exposes the GPU to every bubblewrap sandbox you run;
-filesystem/network/secret isolation is unchanged.)
+*Barrier 2 (per-worktree, automatic): the seccomp stage.* Even with the nodes
+present, CUDA context init fails with `cudaSetDevice -> 304`: the sandbox's
+Unix-socket-blocking `apply-seccomp` stage runs the command in a nested
+namespace that NVIDIA's UVM init can't tolerate. The fix is
+`"allowAllUnixSockets": true` in the worktree's `.claude/settings.json`, which
+skips that stage. The template sets it, plus the mitigations it requires --
+`unset SSH_AUTH_SOCK` in `.claude/env.sh` and `denyRead` masks for
+`/run/docker.sock` and the ssh-agent socket (see the "Sandbox security" note
+below). It also sets `CUPY_CACHE_DIR=/tmp/cupy_cache` (cupy's `~/.cupy` is
+read-only in the sandbox).
+
+Then launch `claude` from the worktree; `nvidia-smi`, `pirate_frb test -n 1`,
+and cupy all run on the GPU.
+
+Security note: the shim exposes the GPU to every bubblewrap sandbox you run, and
+`allowAllUnixSockets` disables the sandbox's host-Unix-socket block (we re-close
+the ssh-agent and docker holes as above). Filesystem, network, and secret-file
+isolation (`~/.ssh` etc.) are unchanged. For a trusted single-user dev box this
+is an acceptable trade; `plans/gpu_solution1.md` has the full reasoning and the
+residual risk.
 
 ## Layout
 
@@ -146,13 +165,42 @@ Claude sources before every Bash command, where `$PATH` *does* expand. So:
 
 - `.envrc` exports `CLAUDE_ENV_FILE="$PWD/.claude/env.sh"`.
 - `.claude/env.sh` (generated) does `export PATH="<worktree>/.venv/bin:$PATH"`
-  (plus `VIRTUAL_ENV`, `PYTHONSAFEPATH`). It is sourced *after* bashrc's conda
-  activation, so the venv wins.
+  (plus `VIRTUAL_ENV`, `PYTHONSAFEPATH`, and the sandbox env `CUPY_CACHE_DIR` +
+  `unset SSH_AUTH_SOCK` -- see "Sandbox security"). It is sourced *after*
+  bashrc's conda activation, so the venv wins.
 
 **Launch `claude` from the worktree** (`cd ~/ch_X` with direnv active, then
 `claude`) so it inherits `CLAUDE_ENV_FILE`. Verify inside the agent with
 `which python` -> it should be `~/ch_X/.venv/bin/python`. (`settings.json` still
 sets `VIRTUAL_ENV` + `PYTHONSAFEPATH`, but it cannot set PATH.)
+
+## Sandbox security (GPU trade-off and mitigations)
+
+Enabling GPU *compute* in the sandbox requires `"allowAllUnixSockets": true` in
+the worktree `.claude/settings.json` (see Setup step 4 / `plans/gpu_solution1.md`
+for why -- the seccomp stage otherwise breaks CUDA init with code 304). That key
+disables the sandbox's block on connecting to host Unix-domain sockets, so the
+template re-closes the two that matter on this box:
+
+- **ssh-agent** -- `.claude/env.sh` does `unset SSH_AUTH_SOCK`. This is the
+  primary, path-independent guard: ssh/git/ssh-add then find no agent regardless
+  of the socket path (including the unpredictable `/tmp/ssh-XXXX` that
+  `eval $(ssh-agent)` creates, which `denyRead` can't target). Costs nothing
+  here -- agents commit locally; you push/fetch outside the sandbox.
+- **docker socket** -- `denyRead` masks `/run/docker.sock` (you are in the
+  `docker` group, so it = root). One entry covers both `/run` and the
+  `/var/run -> /run` symlink; do NOT also list `/var/run/docker.sock` (bwrap
+  can't make a mountpoint through the symlink and sandbox setup fails).
+- **ssh-agent fixed path** -- `denyRead` also masks
+  `/run/user/<UID>/ssh-agent.socket` (the predictable systemd path) as
+  belt-and-suspenders. The template renders `<UID>` per machine via `os.getuid()`.
+
+What this does NOT stop: code that deliberately scans `/tmp` + `/run` for socket
+inodes and connects by raw path (the `unset` only defeats *cooperative* clients,
+which is the real threat -- your agent misusing a key). Closing that means
+re-enabling the AF_UNIX block, which re-breaks CUDA. For a trusted-agent dev box
+that is the same trade as exposing the GPU at all. Filesystem/network/secret-file
+isolation (`~/.ssh`, etc.) is unchanged throughout.
 
 ## Files
 
@@ -169,7 +217,10 @@ sets `VIRTUAL_ENV` + `PYTHONSAFEPATH`, but it cannot set PATH.)
 - `delete_worktree.py NAME [--force]` -- tear a feature workspace down.
 - `ch_dev_helpers.py` -- shared helpers (manifest, paths, dotfile rendering).
 - `dotfile_templates/` -- source templates for `.envrc`, `.claude/env.sh`, and
-  the per-worktree sandbox `.claude/settings.json`.
+  the per-worktree sandbox `.claude/settings.json`. The sandbox templates bake in
+  the GPU-compute fix + mitigations (`allowAllUnixSockets`, `unset
+  SSH_AUTH_SOCK`, docker/ssh-agent `denyRead`, `CUPY_CACHE_DIR`); `render_dotfiles`
+  in `ch_dev_helpers.py` substitutes `{{WORKTREE}}` and `{{UID}}`.
 - `misc/bwrap_shim` -- no-root GPU shim for the Claude Code sandbox (Setup
   step 4; see `plans/gpu_solution1.md`).
 

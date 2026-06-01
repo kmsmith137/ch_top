@@ -2,14 +2,19 @@
   "sandbox": {
     "enabled": true,
     "filesystem": {
-      "denyRead": ["~/.ssh", "~/.aws", "~/.config/gh", "~/.gnupg"],
+      "denyRead": ["~/.ssh", "~/.aws", "~/.config/gh", "~/.gnupg",
+                   "/run/docker.sock",
+                   "/run/user/{{UID}}/ssh-agent.socket"],
       "allowWrite": [
         "/dev/nvidia0", "/dev/nvidia1", "/dev/nvidiactl",
         "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools",
         "/tmp"
       ]
     },
-    "network": { "allowedDomains": [] }
+    "network": {
+      "allowedDomains": [],
+      "allowAllUnixSockets": true
+    }
   },
   "env": {
     "VIRTUAL_ENV": "{{WORKTREE}}/.venv",

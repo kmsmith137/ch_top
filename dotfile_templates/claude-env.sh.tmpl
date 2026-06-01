@@ -9,3 +9,17 @@
 export VIRTUAL_ENV="{{WORKTREE}}/.venv"
 export PATH="{{WORKTREE}}/.venv/bin:$PATH"
 export PYTHONSAFEPATH=1
+
+# cupy writes a per-arch kernel cache; its default ~/.cupy is read-only inside
+# the sandbox, so point it at writable /tmp (the sandbox makes /tmp writable).
+# Harmless outside the sandbox too. See README.md "GPU inside the sandbox".
+export CUPY_CACHE_DIR=/tmp/cupy_cache
+
+# Sandbox hardening. Enabling the GPU requires allowAllUnixSockets:true in
+# settings.json, which disables the seccomp AF_UNIX block -- so a sandboxed
+# process could otherwise reach a host ssh-agent socket. Unsetting
+# SSH_AUTH_SOCK stops any cooperative client (ssh/git/ssh-add) from finding an
+# agent regardless of the socket's path -- including the random /tmp/ssh-XXXX
+# path `eval $(ssh-agent)` uses, which denyRead cannot predict. (Agents commit
+# locally only; you push/fetch outside the sandbox.) See README.md.
+unset SSH_AUTH_SOCK
