@@ -15,19 +15,31 @@ does not build.)
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
+# Put this script's own directory on sys.path before the local import below.
+# The worktree .envrc exports PYTHONSAFEPATH=1 (cwd-shadowing guard), which drops
+# the script dir from sys.path -- so once direnv has run in ch_dev, a bare
+# `import ch_dev_helpers` would fail with ModuleNotFoundError. See README.md.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import ch_dev_helpers as wl
 
-# Per-repo build recipe, in dependency order (ksgpu before pirate). Each entry
-# is (repo_subdir, make_args); the editable install is always
-# `pip install --no-build-isolation -e .` run in that repo.
-BUILD = [
-    ("ksgpu", ["make", "-j", "32"]),
-    ("pirate", ["make", "-j", "32"]),
-]
+# Repos to install, in dependency order (ksgpu before pirate). The editable
+# install (`pip install --no-build-isolation -e .`) is what compiles the native
+# libs: pirate/ksgpu use the `pipmake` backend, whose build_editable runs
+# `make build_wheel` -- which builds the import-critical .so's
+# ($(*_LIB), $(*_PYEXT)). We deliberately do NOT run a separate `make`/`make all`
+# first: `all` also pulls in pirate's `lib` target, whose `configs/asdf_header.yml`
+# rule runs `python -m pirate_frb ...` -- which is not importable until AFTER the
+# editable install. Running `make all` before the install therefore fails (and
+# its `> asdf_header.yml` redirect truncates that file to 0 bytes en route).
+# Installing is sufficient and correctly ordered. See README.md.
+BUILD = ["ksgpu", "pirate"]
 
 # Fast import check (always run). The heavy GPU unit test is gated behind --test.
 SMOKE_IMPORT = "import ksgpu, pirate_frb; print('import ok')"
@@ -40,7 +52,7 @@ def build(workdir, *, recreate: bool = False, test: bool = False) -> None:
         wl.die(f"workdir does not exist: {workdir}")
 
     # Reminder enforcement: warn about manifest repos this script does not build.
-    built = {name for name, _ in BUILD}
+    built = set(BUILD)
     for name in wl.load_manifest():
         if name not in built:
             wl.warn(f"repo '{name}' is in the manifest but init_venv.py does not "
@@ -70,11 +82,12 @@ def build(workdir, *, recreate: bool = False, test: bool = False) -> None:
     # into the venv's own site-packages.
     wl.run([pip, "install", "--ignore-installed", "editables"], env=env)
 
-    for name, make_args in BUILD:
+    for name in BUILD:
         repo = workdir / name
         if not repo.is_dir():
             wl.die(f"repo dir missing: {repo}  (run init_toplevel.py first?)")
-        wl.run(make_args, cwd=str(repo), env=env)
+        # The editable install runs `make build_wheel` (via pipmake) to compile
+        # the native libs; no separate `make` step -- see the BUILD comment above.
         wl.run([pip, "install", "--no-build-isolation", "-e", "."],
                cwd=str(repo), env=env)
 

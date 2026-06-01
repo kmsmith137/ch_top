@@ -16,7 +16,15 @@ See plans/multi_agent_workspace.md Sections 2c, 6, 7.
 from __future__ import annotations
 
 import argparse
+import os
+import sys
 from pathlib import Path
+
+# Put this script's own directory on sys.path before the local imports below.
+# The worktree .envrc exports PYTHONSAFEPATH=1 (cwd-shadowing guard), which drops
+# the script dir from sys.path -- so once direnv has run in ch_dev, a bare
+# `import ch_dev_helpers` would fail with ModuleNotFoundError. See README.md.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import ch_dev_helpers as wl
 import init_venv
