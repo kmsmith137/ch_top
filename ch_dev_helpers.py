@@ -124,25 +124,83 @@ def shared_git_dirs(workdir):
     return dirs
 
 
-def run_git_all(git_args, workdir=ROOT) -> int:
-    """Run `git <git_args>` in each workspace repo, under a per-repo header.
+def run_git_each(specs, *, dry_run=False):
+    """Run a git command in several repos, each under a per-repo header.
 
-    Returns the worst (max) git exit code. Color is enabled when stdout is a
-    terminal and suppressed when piped/redirected, so `git-diff.py | less` keeps
-    color while `git-diff.py > out.txt` stays plain.
+    `specs` is an iterable of (label, path, git_args). Returns (worst_rc,
+    failed_labels). Color is enabled when stdout is a terminal and suppressed
+    when piped/redirected. With dry_run=True, prints the command it WOULD run
+    instead of running it (rc 0).
     """
     color = "always" if sys.stdout.isatty() else "auto"
-    repos = workspace_repos(workdir)
-    worst = 0
-    for label, path in repos:
+    worst, failed = 0, []
+    for label, path, git_args in specs:
+        print(f"==================== {label}  ({path}) ====================")
+        if dry_run:
+            printable = " ".join(shlex.quote(str(a)) for a in ["git", "-C", str(path), *git_args])
+            print(f"[dry-run] {printable}")
+            print()
+            continue
         cmd = ["git", "-C", str(path), "-c", f"color.ui={color}", *git_args]
         res = subprocess.run(cmd, capture_output=True, text=True)
         worst = max(worst, res.returncode)
-        print(f"==================== {label}  ({path}) ====================")
+        if res.returncode:
+            failed.append(label)
         body = (res.stdout if res.returncode == 0 else res.stdout + res.stderr).rstrip("\n")
         print(body if body else "(no output)")
         print()
+    return worst, failed
+
+
+def run_git_all(git_args, workdir=ROOT) -> int:
+    """Run `git <git_args>` in each workspace repo, under a per-repo header.
+
+    Returns the worst (max) git exit code.
+    """
+    specs = [(label, path, git_args) for label, path in workspace_repos(workdir)]
+    worst, _ = run_git_each(specs)
     return worst
+
+
+def is_toplevel(workdir=ROOT) -> bool:
+    """True if workdir is the toplevel ch_dev checkout (its .git is a directory),
+    False if it is a linked worktree (its .git is a file)."""
+    return (Path(workdir) / ".git").is_dir()
+
+
+def current_branch(repo_path):
+    """The branch checked out in repo_path, or None if detached."""
+    res = subprocess.run(
+        ["git", "-C", str(repo_path), "symbolic-ref", "--quiet", "--short", "HEAD"],
+        capture_output=True, text=True,
+    )
+    return res.stdout.strip() if res.returncode == 0 else None
+
+
+def branch_exists(repo_path, branch) -> bool:
+    return subprocess.run(
+        ["git", "-C", str(repo_path), "rev-parse", "--verify", "--quiet",
+         f"refs/heads/{branch}"],
+        capture_output=True, text=True,
+    ).returncode == 0
+
+
+def repo_branch_info(workdir=ROOT):
+    """[(repo_name, path, integration_branch, current_branch)] for each repo.
+
+    repo_name is the repo identity (ch_dev / ksgpu / pirate), taken from the
+    main-worktree dirname; path is THIS workspace's checkout of it;
+    integration_branch is the branch checked out in that repo's main worktree
+    (main / chord / kms); current_branch is what `path` has checked out.
+    """
+    out = []
+    for _label, path in workspace_repos(workdir):
+        wts = _parse_worktrees(path)
+        if not wts:
+            continue
+        main_path, integ = wts[0]
+        out.append((main_path.name, path, integ, current_branch(path)))
+    return out
 
 
 def _parse_worktrees(repo_path):

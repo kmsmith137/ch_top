@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+"""Rebase this feature worktree's branch onto its integration branch, in each repo.
+
+    git-rebase-down.py [--dry-run] [-- GIT_REBASE_ARGS...]
+
+For each repo in this workspace (ch_dev, ksgpu, pirate), rebase the branch
+checked out HERE (the feature branch, e.g. ch_evrb) onto that repo's integration
+branch -- the branch checked out in the repo's MAIN worktree (main / chord / kms).
+This is the "sync down" half of the rebase-then-fast-forward workflow: it brings
+the feature branch up to date with the integration branch, keeping history linear.
+
+Run this from a feature WORKTREE (it FAILS in the toplevel ch_dev -- there is no
+feature branch to rebase there; use git-merge-up.py to land instead). Repos
+already up to date are skipped. Extra args after `--` pass through to git rebase
+(e.g. `-i`). On a conflict, git stops as usual; resolve in that repo, then
+`git rebase --continue`. Exits non-zero if any repo's rebase fails.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+
+# Put this script's own directory on sys.path before the local import below.
+# The worktree .envrc exports PYTHONSAFEPATH=1 (cwd-shadowing guard), which drops
+# the script dir from sys.path -- so once direnv has run in ch_dev, a bare
+# `import ch_dev_helpers` would fail with ModuleNotFoundError. See README.md.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import ch_dev_helpers as wl
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Rebase the feature branch onto its "
+                                             "integration branch, in every repo.")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="show the rebase each repo would run, but do nothing")
+    ap.add_argument("rebase_args", nargs="*",
+                    help="extra args passed through to `git rebase` (after --)")
+    args = ap.parse_args()
+
+    if wl.is_toplevel():
+        wl.die("git-rebase-down.py must be run from a feature worktree, not the "
+               "toplevel ch_dev (the toplevel has no feature branch to rebase -- "
+               "use git-merge-up.py to land a feature instead).")
+
+    specs = []
+    for repo, path, integ, branch in wl.repo_branch_info():
+        if branch is None:
+            wl.warn(f"{repo}: detached HEAD, skipping")
+            continue
+        if branch == integ:
+            wl.warn(f"{repo}: already on integration branch '{integ}', skipping")
+            continue
+        ab = wl._ahead_behind(path, integ, branch)
+        if ab is not None and ab[1] == 0:  # behind == 0: nothing to replay onto
+            wl.info(f"{repo}: {branch} already up to date with {integ}, skipping")
+            continue
+        specs.append((f"{repo}: rebase {branch} onto {integ}", path,
+                      ["rebase", *args.rebase_args, integ]))
+
+    if not specs:
+        wl.info("nothing to rebase.")
+        return
+    worst, failed = wl.run_git_each(specs, dry_run=args.dry_run)
+    if failed:
+        wl.die(f"rebase failed/stopped in: {', '.join(failed)} "
+               f"(resolve, then `git rebase --continue` in that repo)")
+
+
+if __name__ == "__main__":
+    main()
