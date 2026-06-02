@@ -261,6 +261,10 @@ def branch_relations(workdir=ROOT):
     worktree's own branch. Returns formatted strings like
     'ch_evrb/pirate is 2 commits ahead of ch_dev/pirate (kms branch)' --
     '<branch>/<repo>' vs '<toplevel-workspace>/<repo> (<integration-branch> branch)'.
+
+    Lines are grouped by feature branch (all of ch_evrb's repos, then all of
+    ch_misc's, ...), each group in repo order (ch_dev, ksgpu, pirate), with an
+    empty string between groups so callers print a blank line between them.
     """
     workdir = Path(workdir).resolve()
     toplevel = (workdir / ".git").is_dir()
@@ -268,7 +272,9 @@ def branch_relations(workdir=ROOT):
     # (e.g. 'ch_dev'). workspace_repos lists the container repo first.
     repos = workspace_repos(workdir)
     top_ws = _parse_worktrees(repos[0][1])[0][0].name if repos else "ch_dev"
-    lines = []
+    # Collect lines per feature branch, preserving first-seen branch order and
+    # repo order (repos are iterated in workspace_repos order).
+    by_branch = {}  # branch -> [line, ...]
     for _, path in repos:
         wts = _parse_worktrees(path)
         if not wts or wts[0][1] is None:
@@ -282,7 +288,14 @@ def branch_relations(workdir=ROOT):
         for _wt_path, branch in targets:
             ab = _ahead_behind(path, base, branch)
             rel = _relation_phrase(*ab) if ab else "cannot be compared to"
-            lines.append(f"{branch}/{repo} is {rel} {top_ws}/{repo} ({base} branch)")
+            by_branch.setdefault(branch, []).append(
+                f"{branch}/{repo} is {rel} {top_ws}/{repo} ({base} branch)")
+    # Flatten, with a blank line between branch groups.
+    lines = []
+    for group in by_branch.values():
+        if lines:
+            lines.append("")
+        lines.extend(group)
     return lines
 
 
