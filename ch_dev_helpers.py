@@ -135,7 +135,7 @@ def run_git_each(specs, *, dry_run=False):
     color = "always" if sys.stdout.isatty() else "auto"
     worst, failed = 0, []
     for label, path, git_args in specs:
-        print(f"==================== {label}  ({path}) ====================")
+        print(f"==================== {label} ====================")
         if dry_run:
             printable = " ".join(shlex.quote(str(a)) for a in ["git", "-C", str(path), *git_args])
             print(f"[dry-run] {printable}")
@@ -155,9 +155,13 @@ def run_git_each(specs, *, dry_run=False):
 def run_git_all(git_args, workdir=ROOT) -> int:
     """Run `git <git_args>` in each workspace repo, under a per-repo header.
 
-    Returns the worst (max) git exit code.
+    Headers read `<workspace>/<repo>`, e.g. `ch_evrb/pirate` -- the workspace dir
+    this is run from, and the repo identity (ch_dev / ksgpu / pirate). Returns
+    the worst (max) git exit code.
     """
-    specs = [(label, path, git_args) for label, path in workspace_repos(workdir)]
+    ws = Path(workdir).resolve().name
+    specs = [(f"{ws}/{repo}", path, git_args)
+             for repo, path, _integ, _cur in repo_branch_info(workdir)]
     worst, _ = run_git_each(specs)
     return worst
 
@@ -255,17 +259,22 @@ def branch_relations(workdir=ROOT):
     and Y = a feature-worktree branch. Run from the toplevel ch_dev, covers every
     feature worktree of every repo; run from a feature worktree, only that
     worktree's own branch. Returns formatted strings like
-    'pirate/ch_evrb is 2 commits ahead of pirate/kms'.
+    'ch_evrb/pirate is 2 commits ahead of ch_dev/pirate (kms branch)' --
+    '<branch>/<repo>' vs '<toplevel-workspace>/<repo> (<integration-branch> branch)'.
     """
     workdir = Path(workdir).resolve()
     toplevel = (workdir / ".git").is_dir()
+    # The toplevel workspace name is the container repo's main-worktree dirname
+    # (e.g. 'ch_dev'). workspace_repos lists the container repo first.
+    repos = workspace_repos(workdir)
+    top_ws = _parse_worktrees(repos[0][1])[0][0].name if repos else "ch_dev"
     lines = []
-    for _, path in workspace_repos(workdir):
+    for _, path in repos:
         wts = _parse_worktrees(path)
         if not wts or wts[0][1] is None:
             continue  # repo with a detached main worktree -- nothing to compare to
         main_path, base = wts[0]
-        repo = main_path.name
+        repo = main_path.name             # repo identity: ch_dev / ksgpu / pirate
         if toplevel:
             targets = [(p, b) for p, b in wts[1:] if b is not None]
         else:
@@ -273,7 +282,7 @@ def branch_relations(workdir=ROOT):
         for _wt_path, branch in targets:
             ab = _ahead_behind(path, base, branch)
             rel = _relation_phrase(*ab) if ab else "cannot be compared to"
-            lines.append(f"{repo}/{branch} is {rel} {repo}/{base}")
+            lines.append(f"{branch}/{repo} is {rel} {top_ws}/{repo} ({base} branch)")
     return lines
 
 
