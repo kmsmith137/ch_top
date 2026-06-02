@@ -12,5 +12,7 @@
 
 # Ephemeral.
 plans/
+scratch*.txt
 __pycache__/
 *.pyc
+*~
