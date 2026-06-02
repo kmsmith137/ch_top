@@ -8,16 +8,16 @@ This directory is a "container" git repo that holds two sub-repos
 Our setup is as follows. We start by cloning all 3 repos
 (these are called the "toplevel" repos):
 
-  ~/ch_dev/        -> plain clone pointed at github remote
-  ~/ch_dev/ksgpu   -> plain clone pointed at github remote
-  ~/ch_dev/pirate  -> plain clone pointed at github remote
+  ~/ch_dev/        -> plain clone pointed at github remote (main branch)
+  ~/ch_dev/ksgpu   -> plain clone pointed at github remote (chord branch)
+  ~/ch_dev/pirate  -> plain clone pointed at github remote (kms branch)
 
 Then, for each feature we want to implement, we make git worktrees
 for all 3 repos. For example, if the feature is named 'ch_test', then:
 
-  ~/ch_test/          -> git worktree pointed at ~/ch_test
-  ~/ch_test/ksgpu     -> git worktree pointed at ~/ch_test/ksgpu
-  ~/ch_test/pirate    -> git worktree pointed at ~/ch_test/pirate
+  ~/ch_test/          -> git worktree pointed at ~/ch_dev
+  ~/ch_test/ksgpu     -> git worktree pointed at ~/ch_dev/ksgpu
+  ~/ch_test/pirate    -> git worktree pointed at ~/ch_dev/pirate
 
 The first thing you should do on startup is figure out whether you are
 in a worktree. (Toplevel is ~/ch_dev; a worktree is ~/ch_<feature>.
@@ -28,7 +28,14 @@ If you are making edits in any of the sub-repos, then you MUST
 read the per-subrepo CLAUDE.md (either ./ksgpu/CLAUDE.md or
 ./pirate/CLAUDE.md) which contain additional instructions.
 
+The directory ~/git contains source trees for some external
+software that may be useful as a reference. For most tasks,
+you won't need to read these source trees.
+
+  ~/git/pipmake           -> used in build system
+  ~/git/chord-frb-sifter  -> real-time code "downstream" from the FRB search
+
 CRITICAL: things not to do:
    - Do not git commit unless explicitly asked.
-   - NEVER merge/rebase between branches (I'll do this by hand).
-   - NEVER pull/push to the github remote (I'l do this by hand).
+   - NEVER merge/rebase between branches (I'll do this by running the git-* scripts).
+   - NEVER pull/push to the github remote (I'll do this by hand).
