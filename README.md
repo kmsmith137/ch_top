@@ -68,9 +68,10 @@ Note that we don't use git submodules or git subtrees.
     ./git-status.py                          # status + per-worktree branch relations
     ./git-diff.py [--stat|--cached|...]
 
-    # move commits between feature and integration branches (all 3 repos):
+    # move commits between feature and integration branches (all 3 repos);
+    # both run from the worktree:
     cd ../ch_myfeature && ./git-rebase-down.py   # sync down: rebase onto integration
-    cd ~/ch_dev && ./git-merge-up.py ch_myfeature  # land up: fast-forward integration
+    cd ../ch_myfeature && ./git-merge-up.py      # land up: fast-forward integration
 
     # tear down (after landing):
     python3 ~/ch_dev/delete_worktree.py ch_myfeature
@@ -175,9 +176,10 @@ run on the GPU.
   relates to its integration branch, e.g. `pirate/ch_evrb is 2 commits ahead of
   pirate/kms`.
 - `git-rebase-down.py [--dry-run]` -- in a WORKTREE: rebase this feature's branch
-  onto each repo's integration branch (sync down). `git-merge-up.py FEATURE
-  [--dry-run] [--no-ff]` -- in the TOPLEVEL: fast-forward FEATURE onto each repo's
-  integration branch (land up). See "Branch workflow" below.
+  onto each repo's integration branch (sync down). `git-merge-up.py [--dry-run]
+  [--no-ff]` -- also in the WORKTREE: fast-forward this feature onto each repo's
+  integration branch (land up; the merge itself runs in the toplevel checkout,
+  where the integration branch lives). See "Branch workflow" below.
 - `ch_dev_helpers.py` -- shared helpers (manifest, paths, dotfile rendering,
   the multi-repo git logic).
 - `dotfile_templates/` -- source templates for `.envrc`, `.claude/env.sh`, and
@@ -200,21 +202,24 @@ prompt (Appendix E).
 **Branch workflow (rebase-then-fast-forward).** Each feature is the same branch
 name across all 3 repos; the integration branches are `main`/`chord`/`kms`. Two
 helpers move commits between a feature branch and its integration branch, keeping
-history linear (feature commits land individually, no merge bubbles). They are
-the inverse of each other and refuse to run on the wrong side:
+history linear (feature commits land individually, no merge bubbles). BOTH run
+from the worktree, and each infers the feature branch from what is checked out
+there (no branch-name argument):
 
-    # sync down -- in the worktree: rebase the feature branch onto latest
-    # integration, per repo. Run whenever an integration branch has moved.
+    # sync down: rebase the feature branch onto latest integration, per repo.
+    # Run whenever an integration branch has moved.
     cd ~/ch_<feature> && ./git-rebase-down.py        # --dry-run to preview
 
-    # land up -- in the toplevel: fast-forward the feature onto each integration
-    # branch (only after a clean rebase-down).
-    cd ~/ch_dev && ./git-merge-up.py ch_<feature>    # --dry-run to preview
+    # land up: fast-forward the feature onto each integration branch (only after
+    # a clean rebase-down). The merge runs in the toplevel checkout, where the
+    # integration branch is checked out -- the output shows that path.
+    cd ~/ch_<feature> && ./git-merge-up.py           # --dry-run to preview
 
 Both skip repos that need nothing (`git-status.py` shows which do). `--ff-only`
 (the default for `git-merge-up.py`) refuses rather than create a merge commit if
 the integration branch moved since you rebased -- just rebase-down again and
-retry. After a successful land, tear down:
+retry. After a successful land, tear down (from the toplevel, since it removes
+the worktree dirs):
 
     python3 ~/ch_dev/delete_worktree.py ch_<feature>
     for r in . ksgpu pirate; do git -C ~/ch_dev/$r branch -d ch_<feature>; done

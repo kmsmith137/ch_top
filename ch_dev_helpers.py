@@ -207,6 +207,15 @@ def repo_branch_info(workdir=ROOT):
     return out
 
 
+def repo_main_path(repo_path):
+    """The main-worktree path of repo_path's repository -- where the integration
+    branch (main/chord/kms) is checked out. For a worktree checkout this points
+    back into the toplevel (e.g. ~/ch_evrb/pirate -> ~/ch_dev/pirate); for the
+    toplevel checkout it is repo_path itself."""
+    wts = _parse_worktrees(repo_path)
+    return wts[0][0] if wts else Path(repo_path).resolve()
+
+
 def _parse_worktrees(repo_path):
     """[(worktree_path: Path, branch: str|None)] for repo_path, main worktree first.
 
