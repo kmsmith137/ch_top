@@ -6,8 +6,6 @@ This repo is work in progress and very rough around the edges!
 It's my personal system for organizing CHORD development into multiple
 git worktrees, with a small number (usually one) of LLM agents per worktree.
 
-Features:
-
  - Orchestration scripts for creating/deleting worktrees with pre-initialized
    dotfiles (`.envrc`, `.claude/*`), and moving commits around.
  
@@ -22,17 +20,17 @@ Features:
 ## Layout
 
 Base tree:
-
+```
   ~/ch_dev/        -> plain clone pointed at github remote (main branch)
   ~/ch_dev/ksgpu   -> plain clone pointed at github remote (chord branch)
   ~/ch_dev/pirate  -> plain clone pointed at github remote (kms branch)
-
+```
 Worktree (named `ch_test` for concreteness):
-
+```
   ~/ch_test/          -> git worktree pointed at ~/ch_dev
   ~/ch_test/ksgpu     -> git worktree pointed at ~/ch_dev/ksgpu
   ~/ch_test/pirate    -> git worktree pointed at ~/ch_dev/pirate
-
+```
 Note that we don't use git submodules or git subtrees.
 
 ## Quick start
@@ -45,6 +43,10 @@ Note that we don't use git submodules or git subtrees.
     python3 init_worktree.py ch_myfeature    # make ../ch_myfeature (worktrees + venv)
     cd ../ch_myfeature && direnv allow .
     tmux new -s ch_myfeature && claude       # run the agent from the worktree
+
+    # the two init_* scripts above build the .venv for you (via init_venv.py);
+    # run init_venv.py directly only to REBUILD an existing workspace's venv:
+    python3 init_venv.py . --recreate        # e.g. after a dependency/build change
 
     # inspect all 3 repos at once (from any workspace):
     ./git-status.py                          # status + per-worktree branch relations
