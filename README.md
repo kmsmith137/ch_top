@@ -15,7 +15,23 @@ git worktrees, with a small number (usually one) of LLM agents per worktree.
    (For humans, this is done with `direnv`. For LLMs, this is done with `.claude/*`.)
  
  - Sandboxing: per-worktree agents run with os-level filesystem sandboxing,
-   and therefore don't need to request permission very often.
+   and therefore don't need to request permission very often. (The "top-level"
+   ch_dev agent(s) aren't sandboxed, only the agents that run in worktrees.)
+
+## Contents
+
+- [Layout](#layout)
+- [Quick start](#quick-start)
+- [One-time setup (per machine)](#one-time-setup-per-machine)
+- [Scripts](#scripts)
+- [Daily workflow](#daily-workflow)
+- [Sandbox and GPU (summary)](#sandbox-and-gpu-summary)
+- [Gotchas](#gotchas)
+- [Appendix A: cwd shadowing](#appendix-a-cwd-shadowing)
+- [Appendix B: activating the per-worktree venv for an agent](#appendix-b-activating-the-per-worktree-venv-for-an-agent)
+- [Appendix C: GPU compute inside the sandbox](#appendix-c-gpu-compute-inside-the-sandbox)
+- [Appendix D: sandbox security trade-offs and mitigations](#appendix-d-sandbox-security-trade-offs-and-mitigations)
+- [Appendix E: git commit from a worktree (shared .git)](#appendix-e-git-commit-from-a-worktree-shared-git)
 
 ## Layout
 
@@ -46,7 +62,7 @@ Note that we don't use git submodules or git subtrees.
 
     # the two init_* scripts above build the .venv for you (via init_venv.py);
     # run init_venv.py directly only to REBUILD an existing workspace's venv:
-    python3 init_venv.py . --recreate        # e.g. after a dependency/build change
+    # python3 init_venv.py . --recreate      # e.g. after a dependency/build change
 
     # inspect all 3 repos at once (from any workspace):
     ./git-status.py                          # status + per-worktree branch relations
@@ -128,17 +144,17 @@ Verify: run `/sandbox` in Claude. If it shows the normal Mode / Overrides /
 Config tabs (not a Dependencies-only view), all deps are present.
 
 **4. GPU inside the sandbox** (optional). Install the no-root `bwrap` shim that
-makes the GPU visible inside the sandbox (the *why* is Appendix B):
+makes the GPU visible inside the sandbox (the *why* is Appendix C):
 
     install -m 0755 misc/bwrap_shim ~/.local/bin/bwrap
     hash -r; command -v bwrap          # must print ~/.local/bin/bwrap
 
 That is the only machine-wide GPU step. The matching per-worktree settings are
-rendered automatically by `init_worktree.py` (Appendix B/C). After it, launch
+rendered automatically by `init_worktree.py` (Appendix C/D). After it, launch
 `claude` from a worktree and `nvidia-smi`, `pirate_frb test -n 1`, and cupy all
 run on the GPU.
 
-## The scripts
+## Scripts
 
 - `git_repositories.toml` -- manifest of repos + integration branches. The git
   scripts are manifest-driven; **`init_venv.py` is not** -- its `BUILD` list is
@@ -166,8 +182,8 @@ run on the GPU.
   the multi-repo git logic).
 - `dotfile_templates/` -- source templates for `.envrc`, `.claude/env.sh`, and
   the per-worktree sandbox `.claude/settings.json`. `render_dotfiles` substitutes
-  `{{WORKTREE}}`, `{{UID}}`, and the shared-`.git` paths (Appendix C/D).
-- `misc/bwrap_shim` -- no-root GPU shim for the sandbox (setup step 4, Appendix B).
+  `{{WORKTREE}}`, `{{UID}}`, and the shared-`.git` paths (Appendix D/E).
+- `misc/bwrap_shim` -- no-root GPU shim for the sandbox (setup step 4, Appendix C).
 
 ## Daily workflow
 
@@ -179,7 +195,7 @@ breaks venv activation for the agent (Appendix A).
 **Committing.** A commit in a worktree is immediately part of each repo's shared
 history (no inter-worktree push). Commit per-repo as usual, or use `git-status.py`
 to see all 3 at once. In a sandboxed worktree, `git commit` works without a
-prompt (Appendix D).
+prompt (Appendix E).
 
 **Branch workflow (rebase-then-fast-forward).** Each feature is the same branch
 name across all 3 repos; the integration branches are `main`/`chord`/`kms`. Two
@@ -234,7 +250,7 @@ it finishes, so it is safe to attempt one just to see the conflicts.
 these management scripts, which must write outside their own directory (clone
 repos, create sibling worktrees). Feature worktrees ARE sandboxed.
 
-## Sandbox & GPU (summary)
+## Sandbox and GPU (summary)
 
 Feature-worktree `.claude/settings.json` (rendered by `init_worktree.py`) is set
 up so an agent can do real work -- including GPU compute -- with minimal prompts:
@@ -244,10 +260,10 @@ up so an agent can do real work -- including GPU compute -- with minimal prompts
   still prompted only for genuine escapes (a new network domain, or a command
   that falls back to running unsandboxed).
 - **GPU compute works** -- via the machine-wide shim (setup step 4) plus
-  per-worktree settings. Two distinct barriers had to be removed; see Appendix B.
+  per-worktree settings. Two distinct barriers had to be removed; see Appendix C.
 - **Security mitigations** offset the one broad setting GPU compute requires
-  (`allowAllUnixSockets`); see Appendix C.
-- **`git commit` works** without escaping the sandbox; see Appendix D.
+  (`allowAllUnixSockets`); see Appendix D.
+- **`git commit` works** without escaping the sandbox; see Appendix E.
 
 These are machine-specific (absolute paths, your UID), so the rendered
 `.venv`, `.envrc`, and `.claude/{env.sh,settings.json}` are gitignored; only the
@@ -292,7 +308,7 @@ login shell where direnv has not fired), either run from inside a repo dir
 `PYTHONSAFEPATH=1`. Any non-empty value enables it; to turn it off you must
 *unset* it -- `PYTHONSAFEPATH=0` still enables it.
 
-## Activating the per-worktree venv for an agent
+# Appendix B: activating the per-worktree venv for an agent
 
 Activating the venv for an *agent* is trickier than for a human. Claude Code
 sources `~/.bashrc` (your conda activation) once at session start, does NOT
@@ -317,7 +333,7 @@ in ch_dev, a bare `import ch_dev_helpers` would fail (the script dir is dropped
 from `sys.path`), so each entry-point script prepends its own directory to
 `sys.path` before importing.
 
-# Appendix B: GPU compute inside the sandbox
+# Appendix C: GPU compute inside the sandbox
 
 Claude's Bash sandbox (bubblewrap) blocks GPU *compute* via two independent
 barriers. Both must be removed; the fixes are orthogonal and both wired into the
@@ -359,7 +375,7 @@ Re-verify after upgrading `@anthropic-ai/sandbox-runtime` or Claude Code: the
 repro is the outer bwrap with vs without `apply-seccomp` around
 `ksgpu.set_cuda_device(0)`.
 
-# Appendix C: sandbox security trade-offs and mitigations
+# Appendix D: sandbox security trade-offs and mitigations
 
 The two GPU fixes weaken the sandbox in specific ways. For a trusted single-user
 dev box these are acceptable trades, but know what they are. Filesystem, network,
@@ -394,7 +410,7 @@ deliberately scans `/tmp` + `/run` for socket inodes and connects by raw path.
 Closing that means re-enabling the AF_UNIX block, which re-breaks CUDA -- the same
 trade as exposing the GPU at all.
 
-# Appendix D: `git commit` from a worktree (shared .git)
+# Appendix E: `git commit` from a worktree (shared .git)
 
 A commit in a feature worktree writes to each repo's SHARED `.git` common-dir,
 which in this nested layout lives in the main checkout (`ch_dev/.git`,
