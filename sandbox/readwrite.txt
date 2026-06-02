@@ -1,9 +1,12 @@
 # Extra paths the sandboxed agent may READ AND WRITE (goal 2), on top of the ones
-# the launcher always grants automatically:
-#   - this worktree (its own working tree, .venv, build outputs);
-#   - each repo's shared .git object store, so `git commit` works (its config
-#     file and hooks/ dir are kept read-only -- see README.md Appendix E);
-#   - ~/.claude, shared so the agent uses your Claude subscription auth.
+# the launcher always grants automatically -- namely the whole GROUPING DIR (the
+# parent of the toplevel) in one mount, which covers:
+#   - this worktree and its sibling worktrees (working trees, .venv, build outputs);
+#   - the toplevel, and every repo's shared .git object store, so `git commit`
+#     works (each .git's config file and hooks/ dir are pinned read-only -- App. E);
+#   - the agent's own Claude config (CLAUDE_CONFIG_DIR = the grouping dir:
+#     .claude.json, .credentials.json, projects/).
+# So you only need entries here for paths OUTSIDE the grouping dir.
 #
 # Read by the per-worktree launcher (.agent/run) at every launch -- edit freely;
 # changes take effect on the next launch, for all worktrees, with no re-render.

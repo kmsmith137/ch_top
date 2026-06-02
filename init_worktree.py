@@ -39,6 +39,11 @@ def main() -> None:
     args = ap.parse_args()
     name = args.name
 
+    # The toplevel must live in a grouping dir, not directly in $HOME, so the
+    # sibling worktree created below does not land in $HOME (and so the grouping
+    # dir can hold the shared sandbox config, e.g. CLAUDE_CONFIG_DIR). See README.
+    wl.require_grouping_dir()
+
     worktree = (wl.ROOT.parent / name).resolve()
     if worktree.exists():
         wl.die(f"target already exists: {worktree}")
@@ -73,6 +78,14 @@ def main() -> None:
     wl.info(f"next: 'direnv allow {worktree}', then 'cd {worktree} && ./.agent/run' "
             f"to start the sandboxed agent (or run plain 'claude' for an "
             f"unsandboxed shell there)")
+    # The sandbox uses CLAUDE_CONFIG_DIR=<grouping dir>, so auth is per-group and
+    # separate from your personal ~/.claude. The first run in a new grouping dir
+    # has no token yet -- point that out.
+    ch = wl.ROOT.parent
+    if not (ch / ".credentials.json").exists():
+        wl.info(f"note: the sandbox authenticates per grouping dir "
+                f"(CLAUDE_CONFIG_DIR={ch}); there is no {ch}/.credentials.json yet, "
+                f"so run '/login' inside the agent once to authenticate this group")
 
 
 if __name__ == "__main__":

@@ -37,19 +37,28 @@ git worktrees, with a small number (usually one) of LLM agents per worktree.
 
 ## Layout
 
-Base tree:
+The toplevel clone and its feature worktrees live together as siblings inside a
+**grouping dir** -- any directory except `$HOME` itself (`~/ch` below; in this dev
+clone it is `~/docker`). `init_worktree.py` refuses to run if the toplevel sits
+directly in `$HOME`, since the sibling worktrees it creates would then land in
+`$HOME`. The grouping dir is also the agent's shared Claude config home
+(`CLAUDE_CONFIG_DIR`; see "Sandbox and GPU").
+
+Base tree (toplevel = the `ch_dev` clone):
 ```
-  ~/ch_dev/        -> plain clone pointed at github remote (main branch)
-  ~/ch_dev/ksgpu   -> plain clone pointed at github remote (chord branch)
-  ~/ch_dev/pirate  -> plain clone pointed at github remote (kms branch)
+  ~/ch/ch_dev/        -> plain clone pointed at github remote (main branch)
+  ~/ch/ch_dev/ksgpu   -> plain clone pointed at github remote (chord branch)
+  ~/ch/ch_dev/pirate  -> plain clone pointed at github remote (kms branch)
 ```
 Worktree (named `ch_test` for concreteness):
 ```
-  ~/ch_test/          -> git worktree pointed at ~/ch_dev
-  ~/ch_test/ksgpu     -> git worktree pointed at ~/ch_dev/ksgpu
-  ~/ch_test/pirate    -> git worktree pointed at ~/ch_dev/pirate
+  ~/ch/ch_test/          -> git worktree pointed at ~/ch/ch_dev
+  ~/ch/ch_test/ksgpu     -> git worktree pointed at ~/ch/ch_dev/ksgpu
+  ~/ch/ch_test/pirate    -> git worktree pointed at ~/ch/ch_dev/pirate
 ```
-Note that we don't use git submodules or git subtrees.
+Plus, in the grouping dir, the agent's shared per-group Claude config:
+`~/ch/.claude.json`, `~/ch/.credentials.json`, `~/ch/projects/`. We don't use git
+submodules or git subtrees.
 
 ## Quick start
 
@@ -76,7 +85,7 @@ Note that we don't use git submodules or git subtrees.
     cd ../ch_myfeature && ./git-merge-up.py      # land up: fast-forward integration
 
     # tear down (after landing):
-    python3 ~/ch_dev/delete_worktree.py ch_myfeature
+    python3 ~/ch/ch_dev/delete_worktree.py ch_myfeature
 
 This assumes the machine is already set up as described next. `init_*.py` are
 idempotent and safe to re-run.
@@ -124,7 +133,7 @@ Add the hook to `~/.bashrc`, AFTER the `conda activate` line:
 
     eval "$(direnv hook bash)"
 
-Each worktree's `.envrc` then needs a one-time `direnv allow ~/ch_<feature>`.
+Each worktree's `.envrc` then needs a one-time `direnv allow ~/ch/ch_<feature>`.
 
 **3. Sandbox (rootless Podman)** (optional). The per-worktree agent runs inside a
 rootless-Podman container. On this host Podman needs no special setup -- no
@@ -186,12 +195,17 @@ seccomp tweak, no `nvidia-container-toolkit`; see Appendix C.
 
 ## Daily workflow
 
-**Run the agent from inside the worktree.** `cd ~/ch_<feature>` (direnv fires,
+**Run the agent from inside the worktree.** `cd ~/ch/ch_<feature>` (direnv fires,
 activating the venv and exporting `CLAUDE_ENV_FILE`), then `./.agent/run`. This
 launches `claude` inside the worktree's rootless-Podman sandbox; inside it,
-`which python` -> `~/ch_<feature>/.venv/bin/python`. Launching from elsewhere
+`which python` -> `~/ch/ch_<feature>/.venv/bin/python`. Launching from elsewhere
 breaks venv activation for the agent (Appendix A/B). To get an *unsandboxed* shell
 in the worktree instead, run plain `claude`.
+
+The sandbox authenticates per **grouping dir** (`CLAUDE_CONFIG_DIR`), separately
+from your personal `~/.claude`. The first time you launch an agent in a new
+grouping dir there is no token yet, so run `/login` inside it once; every worktree
+in that grouping dir then shares the login. See Appendix D.
 
 **Committing.** A commit in a worktree is immediately part of each repo's shared
 history (no inter-worktree push). Commit per-repo as usual, or use `git-status.py`
@@ -207,12 +221,12 @@ there (no branch-name argument):
 
     # sync down: rebase the feature branch onto latest integration, per repo.
     # Run whenever an integration branch has moved.
-    cd ~/ch_<feature> && ./git-rebase-down.py        # --dry-run to preview
+    cd ~/ch/ch_<feature> && ./git-rebase-down.py        # --dry-run to preview
 
     # land up: fast-forward the feature onto each integration branch (only after
     # a clean rebase-down). The merge runs in the toplevel checkout, where the
     # integration branch is checked out -- the output shows that path.
-    cd ~/ch_<feature> && ./git-merge-up.py           # --dry-run to preview
+    cd ~/ch/ch_<feature> && ./git-merge-up.py           # --dry-run to preview
 
 Both skip repos that need nothing (`git-status.py` shows which do). `--ff-only`
 (the default for `git-merge-up.py`) refuses rather than create a merge commit if
@@ -220,7 +234,7 @@ the integration branch moved since you rebased -- just rebase-down again and
 retry. Landing does NOT delete the worktree (worktrees are persistent here); if
 you do want to tear one down, run from the toplevel:
 
-    python3 ~/ch_dev/delete_worktree.py ch_<feature>
+    python3 ~/ch/ch_dev/delete_worktree.py ch_<feature>
 
 It refuses (in any of the 3 repos) if the worktree has uncommitted changes,
 stray untracked files, or commits not yet merged up -- then deletes each repo's
@@ -236,7 +250,7 @@ git's conflict message, leaves that repo in the rebase-in-progress state, and
 exits non-zero (a conflict in one repo does NOT roll back repos that already
 rebased cleanly). Finish by hand, with plain git, in the repo it stopped in:
 
-    cd ~/ch_<feature>/<repo>         # the repo named in the error
+    cd ~/ch/ch_<feature>/<repo>         # the repo named in the error
     # edit the conflicted files (look for <<<<<<< markers), then:
     git add <resolved-files>
     git rebase --continue            # replays the next commit; repeat if it conflicts
@@ -273,12 +287,19 @@ manifest IS the security model:
   env, system CUDA, the `claude` install, other worktrees). The single-id userns
   caps every read at your account: host-root files (e.g. `/etc/shadow`) map to
   `nobody` and are unreadable.
-- **Read-write holes (do work + commit)** -- the worktree, each repo's shared
-  `.git` (Appendix E), and `~/.claude` (shared subscription auth, written back on
-  token refresh). Extra paths via `sandbox/readwrite.txt`. Files are owned by you
-  on the host.
+- **Read-write (do work + commit)** -- the whole **grouping dir** in one mount:
+  the worktree, its siblings, the toplevel, and every repo's shared `.git`
+  (Appendix E). On top, the policy lists (`sandbox/*.txt`) and each `.git`'s
+  `config`+`hooks/` are re-pinned `:ro`, so the agent can't rewrite its own jail
+  or plant code that runs in your unsandboxed shell. Extra paths via
+  `sandbox/readwrite.txt`; files are owned by you on the host.
+- **Auth (per group)** -- `CLAUDE_CONFIG_DIR` points at the grouping dir, so the
+  agent's `.claude.json`, OAuth token, and transcripts live in `~/ch/`, shared by
+  every worktree in the group and separate from your personal `~/.claude` (which
+  is masked). Run `/login` once per grouping dir. See Appendix D.
 - **Masked secrets (deny)** -- each path in `sandbox/deny.txt` (`~/.ssh`,
-  `~/.config`, PyPI/AWS/GPG creds, ...) is shadowed by an empty, unreadable node.
+  `~/.config`, `~/.claude`, PyPI/AWS/GPG creds, ...) is shadowed by an empty,
+  unreadable node (a dir over a directory, a file over a file).
 - **GPU (compute)** -- NVIDIA nodes via `--device` (`sandbox/devices.txt`) + host
   CUDA libs (RO) + default seccomp. No shim, no seccomp override (Appendix C).
 
@@ -389,13 +410,15 @@ container needs the Anthropic API -- `--network host`. The agent could therefore
 reach arbitrary hosts. It **cannot push or exfiltrate via your keys**: `~/.ssh`,
 `~/.git-credentials`, and `~/.netrc` are masked (`deny.txt`) and `SSH_AUTH_SOCK`
 is never passed in (the host agent sockets live in `/tmp`,`/run`, which are
-private tmpfs inside the container, so they are simply absent). It **can** read
-the shared Claude OAuth token in `~/.claude` and, with open egress, send it out;
-the damage is bounded by your subscription scope (rate limits, not metered $). To
-cap it you could give agents a dedicated `~/.claude-agents` config dir with its
-own login, or run a `pasta`/`slirp4netns` egress allowlist (only
-`api.anthropic.com` + your package mirror) instead of `--network host` -- recorded
-as a future tightening, not built now.
+private tmpfs inside the container, so they are simply absent). Your **personal**
+Claude token is out of reach too: `~/.claude` is masked, and the agent
+authenticates from its own per-group `CLAUDE_CONFIG_DIR` (`~/ch/.credentials.json`,
+a separate one-time `/login`). The agent *can* still read that group token and,
+with open egress, send it out -- but the damage is bounded by your subscription
+scope (rate limits, not metered $), and you can revoke/re-login the group token
+without touching your personal one. To restrict *where* it connects, run a
+`pasta`/`slirp4netns` egress allowlist (only `api.anthropic.com` + your package
+mirror) instead of `--network host` -- recorded as a future tightening, not built now.
 
 **Container `uid 0` = your host uid.** With no `/etc/subuid` range the userns is
 single-id, so the container process is `uid 0` mapped to you. Cosmetic (writes are
@@ -427,15 +450,15 @@ which in this nested layout lives in the main checkout (`ch_dev/.git`,
 `ch_dev/ksgpu/.git`, `ch_dev/pirate/.git`) -- OUTSIDE the worktree, so under the
 container's read-only base it would be read-only and the commit would fail.
 
-At launch the `.agent/run` script resolves those common-dirs (`git -C <repo>
-rev-parse --git-common-dir`, kept only when the result is outside the worktree)
-and bind-mounts each one:
-
-- the common-dir itself `:rw` -> `git commit` writes objects/refs with no prompt;
-- its `config` file and `hooks/` dir `:ro` on top. Podman applies the deeper mount
-  last, so the read-only `config`/`hooks` win over the read-write parent. This
-  matters: `config` and `hooks/` are settings/code that execute in YOUR
-  unsandboxed shell, so the agent must not be able to write them.
+The shared `.git` stores sit inside the grouping dir, which the launcher mounts
+`:rw` as a whole -- so `git commit` writes objects/refs there with no prompt. On
+top of that, `.agent/run` resolves each repo's common-dir (`git -C <repo>
+rev-parse --git-common-dir`) and re-pins its `config` file and `hooks/` dir `:ro`
+(Podman applies the deeper mount last, so read-only wins over the read-write
+parent). This matters: `config` and `hooks/` are settings/code that execute in
+YOUR unsandboxed shell, so the agent must not be able to write them. (The
+`sandbox/*.txt` policy lists are re-pinned `:ro` the same way, so the agent can't
+widen its own sandbox.)
 
 Verified live: inside the container a `git commit` succeeds, while appending to
 `.git/config` or planting `.git/hooks/post-commit` are both blocked (read-only

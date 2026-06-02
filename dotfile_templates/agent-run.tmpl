@@ -34,7 +34,10 @@ WT="$(cd "$(dirname "$0")/.." && pwd)"
 gcd="$(cd "$WT" && git rev-parse --git-common-dir 2>/dev/null)" \
   || die "$WT is not inside a git repo"
 gcd="$(cd "$WT" && cd "$gcd" && pwd)"                 # absolutize -> <toplevel>/.git
-LISTS="$(dirname "$gcd")/sandbox"
+TOPLEVEL="$(dirname "$gcd")"                           # the ch_dev checkout
+CH="$(dirname "$TOPLEVEL")"                            # grouping dir: toplevel + sibling
+                                                      # worktrees + shared claude config
+LISTS="$TOPLEVEL/sandbox"
 DENY="$LISTS/deny.txt"; RW="$LISTS/readwrite.txt"; DEVS="$LISTS/devices.txt"
 # Fail CLOSED: never launch an agent if the secret-mask list is missing.
 [ -f "$DENY" ] || die "missing mask list $DENY -- refusing to launch (secrets would be exposed)"
@@ -74,9 +77,13 @@ trap 'rmdir "$EMPTY_DIR" 2>/dev/null; rm -f "$EMPTY_FILE" 2>/dev/null; true' EXI
 # --group-add keep-groups : preserve chord-dev/chord-users group reads.
 # IS_SANDBOX=1    : lets claude accept --dangerously-skip-permissions as uid 0
 #                   (single-id userns: container uid 0 == host you). See App. D.
+# CLAUDE_CONFIG_DIR=$CH : the agent's claude config/auth/transcripts live in the
+#                   grouping dir ($CH/.claude.json, $CH/.credentials.json,
+#                   $CH/projects/), NOT your personal ~/.claude (which is masked).
+#                   Auth is therefore per-group: '/login' once per grouping dir.
 a=( run --rm --network host --ipc host --ulimit memlock=-1:-1 --group-add keep-groups
     --tmpfs /tmp --tmpfs /run -w "$WT"
-    -e HOME="$HOME" -e IS_SANDBOX=1 -e CLAUDE_CONFIG_DIR="$HOME/.claude"
+    -e HOME="$HOME" -e IS_SANDBOX=1 -e CLAUDE_CONFIG_DIR="$CH"
     -e CLAUDE_ENV_FILE="$WT/.claude/env.sh"
     -e VIRTUAL_ENV="$WT/.venv" -e CONDA_PREFIX="$CONDA"
     -e PYTHONSAFEPATH=1 -e CUPY_CACHE_DIR=/tmp/cupy_cache
@@ -99,23 +106,32 @@ while IFS= read -r dev; do
   [ -c "$dev" ] && a+=( --device "$dev" )
 done < <(read_list "$DEVS")
 
-# (goal 2) read-write holes: the worktree, shared Claude auth/state, plus any
-# extra paths in readwrite.txt. Podman applies the deeper mount last, so these
-# win over the RO base.
-a+=( -v "$WT:$WT:rw" -v "$HOME/.claude:$HOME/.claude:rw" )
+# (goal 2) read-write: the whole grouping dir in one mount -- this worktree, its
+# sibling worktrees, the toplevel, every repo's shared .git object store (so
+# commits work), and CLAUDE_CONFIG_DIR=$CH itself (so claude can write
+# .claude.json, refresh its token, and store transcripts). Plus any extra paths
+# from readwrite.txt. Podman applies deeper mounts last, so these win over the RO base.
+a+=( -v "$CH:$CH:rw" )
 while IFS= read -r p; do
   [ -e "$p" ] && a+=( -v "$p:$p:rw" )
 done < <(read_list "$RW")
 
-# (goal 2, commits) each repo's SHARED .git common-dir that lives OUTSIDE the
-# worktree -> :rw so `git commit` works, with its config file and hooks/ dir
-# pinned :ro on top (they run in YOUR unsandboxed shell). See README.md App. E.
+# Keep the sandbox POLICY read-only even inside the RW grouping dir, so the agent
+# cannot rewrite its own deny/read-write/device lists to widen the sandbox on the
+# next launch.
+[ -d "$LISTS" ] && a+=( -v "$LISTS:$LISTS:ro" )
+
+# (goal 2, commits) the shared .git object stores are already RW (under $CH), so
+# `git commit` works. Pin each repo's config file and hooks/ dir :ro on top --
+# they are settings/code that execute in YOUR unsandboxed shell. See README App. E.
+# (Defensive: if a store somehow sits outside $CH, RW it explicitly so commits
+# still work.)
 for repo in "$WT" "$WT"/*/; do
   [ -e "$repo/.git" ] || continue
   g="$(git -C "$repo" rev-parse --git-common-dir 2>/dev/null)" || continue
   g="$(cd "$repo" && cd "$g" && pwd)"
-  case "$g/" in "$WT"/*) continue;; esac              # inside the worktree -> already RW
-  a+=( -v "$g:$g:rw" -v "$g/config:$g/config:ro" -v "$g/hooks:$g/hooks:ro" )
+  case "$g/" in "$CH"/*) ;; *) a+=( -v "$g:$g:rw" );; esac
+  a+=( -v "$g/config:$g/config:ro" -v "$g/hooks:$g/hooks:ro" )
 done
 
 # (goal 3) mask each existing secret path from deny.txt -- a directory with the

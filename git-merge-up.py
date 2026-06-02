@@ -7,8 +7,8 @@ Run from a feature WORKTREE (it FAILS in the toplevel ch_dev). For each repo
 (ch_dev, ksgpu, pirate), take the branch checked out HERE (the feature branch,
 e.g. ch_evrb) and merge it into that repo's integration branch (main / chord /
 kms). The merge necessarily happens in the repo's MAIN worktree (where the
-integration branch is checked out, i.e. back under ~/ch_dev) -- the output shows
-that path.
+integration branch is checked out, i.e. back in the toplevel checkout) -- the
+output shows that path.
 
 By default uses `--ff-only`: the merge SUCCEEDS only if the feature branch is
 already ahead of the integration branch in a straight line (i.e. you ran

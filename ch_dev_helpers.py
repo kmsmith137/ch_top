@@ -146,6 +146,25 @@ def is_toplevel(workdir=ROOT) -> bool:
     return (Path(workdir) / ".git").is_dir()
 
 
+def require_grouping_dir(toplevel=ROOT) -> None:
+    """Die unless the toplevel lives in a grouping dir, not directly in $HOME.
+
+    Feature worktrees are created as SIBLINGS of the toplevel (../NAME), so the
+    toplevel must be nested at least one level below $HOME -- e.g. ~/ch/ch_dev,
+    not ~/ch_dev -- otherwise the worktrees would land directly in $HOME. The
+    intermediate "grouping" dir (~/ch here) holds a toplevel together with all
+    its worktrees. See README.md "Layout".
+    """
+    toplevel = Path(toplevel).resolve()
+    home = Path.home().resolve()
+    if toplevel.parent == home:
+        die(f"toplevel {toplevel} sits directly in $HOME ({home}).\n"
+            f"  Worktrees are created as siblings (../NAME), so they would land in\n"
+            f"  $HOME too. Move the toplevel into a grouping dir first, e.g.\n"
+            f"      {home}/ch/{toplevel.name}\n"
+            f"  (any parent-dir name works, just not $HOME itself).")
+
+
 def current_branch(repo_path):
     """The branch checked out in repo_path, or None if detached."""
     res = subprocess.run(
@@ -184,8 +203,8 @@ def repo_branch_info(workdir=ROOT):
 def repo_main_path(repo_path):
     """The main-worktree path of repo_path's repository -- where the integration
     branch (main/chord/kms) is checked out. For a worktree checkout this points
-    back into the toplevel (e.g. ~/ch_evrb/pirate -> ~/ch_dev/pirate); for the
-    toplevel checkout it is repo_path itself."""
+    back into the toplevel (e.g. ~/ch/ch_evrb/pirate -> ~/ch/ch_dev/pirate); for
+    the toplevel checkout it is repo_path itself."""
     wts = _parse_worktrees(repo_path)
     return wts[0][0] if wts else Path(repo_path).resolve()
 

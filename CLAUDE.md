@@ -5,24 +5,28 @@ This directory is a "container" git repo that holds two sub-repos
   ./ksgpu    GPU C++/CUDA core utils
   ./pirate   real-time FRB search engine
 
-Our setup is as follows. We start by cloning all 3 repos
-(these are called the "toplevel" repos):
+Our setup is as follows. The toplevel clone and its feature worktrees live
+together as siblings inside a "grouping" dir -- any dir except $HOME itself
+(~/ch below; in this dev clone it's ~/docker). We start by cloning all 3 repos
+into the toplevel (these are called the "toplevel" repos):
 
-  ~/ch_dev/        -> plain clone pointed at github remote (main branch)
-  ~/ch_dev/ksgpu   -> plain clone pointed at github remote (chord branch)
-  ~/ch_dev/pirate  -> plain clone pointed at github remote (kms branch)
+  ~/ch/ch_dev/        -> plain clone pointed at github remote (main branch)
+  ~/ch/ch_dev/ksgpu   -> plain clone pointed at github remote (chord branch)
+  ~/ch/ch_dev/pirate  -> plain clone pointed at github remote (kms branch)
 
 Then, for each feature we want to implement, we make git worktrees
 for all 3 repos. For example, if the feature is named 'ch_test', then:
 
-  ~/ch_test/          -> git worktree pointed at ~/ch_dev
-  ~/ch_test/ksgpu     -> git worktree pointed at ~/ch_dev/ksgpu
-  ~/ch_test/pirate    -> git worktree pointed at ~/ch_dev/pirate
+  ~/ch/ch_test/          -> git worktree pointed at ~/ch/ch_dev
+  ~/ch/ch_test/ksgpu     -> git worktree pointed at ~/ch/ch_dev/ksgpu
+  ~/ch/ch_test/pirate    -> git worktree pointed at ~/ch/ch_dev/pirate
+
+The grouping dir (~/ch) is also the sandboxed agent's Claude config home
+(CLAUDE_CONFIG_DIR): ~/ch/.claude.json, ~/ch/.credentials.json, ~/ch/projects/.
 
 The first thing you should do on startup is figure out whether you are
-in a worktree. (Toplevel is ~/ch_dev; a worktree is ~/ch_<feature>.
-Equivalently: in a worktree, .git is a file; in the toplevel, it is a
-directory.)
+in a worktree. (Toplevel and worktrees are siblings in the grouping dir;
+in a worktree, .git is a file; in the toplevel, it is a directory.)
 
 If you are making edits in any of the sub-repos, then you MUST
 read the per-subrepo CLAUDE.md (either ./ksgpu/CLAUDE.md or
