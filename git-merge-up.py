@@ -79,8 +79,7 @@ def main() -> None:
                f"the integration branch moved since you rebased -- re-run "
                f"git-rebase-down.py here, then retry.")
     elif not args.dry_run:
-        wl.info(f"landed '{landed}'. Tear down from the toplevel ch_dev with: "
-                f"delete_worktree.py {landed} ; then `git branch -d {landed}` per repo.")
+        wl.info(f"landed '{landed}'.")
 
 
 if __name__ == "__main__":

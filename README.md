@@ -218,14 +218,16 @@ there (no branch-name argument):
 Both skip repos that need nothing (`git-status.py` shows which do). `--ff-only`
 (the default for `git-merge-up.py`) refuses rather than create a merge commit if
 the integration branch moved since you rebased -- just rebase-down again and
-retry. After a successful land, tear down (from the toplevel, since it removes
-the worktree dirs):
+retry. Landing does NOT delete the worktree (worktrees are persistent here); if
+you do want to tear one down, run from the toplevel:
 
     python3 ~/ch_dev/delete_worktree.py ch_<feature>
-    for r in . ksgpu pirate; do git -C ~/ch_dev/$r branch -d ch_<feature>; done
 
-(`branch -d`, lowercase, refuses to delete an unmerged branch -- a free safety
-check that the land really happened.)
+It refuses (in any of the 3 repos) if the worktree has uncommitted changes,
+stray untracked files, or commits not yet merged up -- then deletes each repo's
+feature branch with `git branch -d` (which itself refuses an unmerged branch, so
+nothing committed is lost). `--force` overrides the dir checks but still keeps
+any unmerged branch.
 
 *Conflicts during rebase-down.* Rebase replays the feature's commits one at a
 time onto the integration branch, so a conflict stops at the FIRST offending
