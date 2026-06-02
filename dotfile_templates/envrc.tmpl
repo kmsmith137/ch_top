@@ -11,7 +11,8 @@ PATH_add "$PWD/.venv/bin"
 export PYTHONSAFEPATH=1
 
 # Point Claude Code at this worktree's env file. Claude sources it before every
-# Bash command, which is what activates the venv for an agent launched here --
-# settings.json "env" cannot prepend to PATH (it does not expand ${PATH}). See
-# README.md "Claude Code + the venv".
+# Bash command, which is what activates the venv for an agent run here. (Inside a
+# worktree's Podman sandbox the launcher passes this same path explicitly; this
+# export is for running `claude` directly on the host, e.g. in the toplevel.)
+# See README.md Appendix B.
 export CLAUDE_ENV_FILE="$PWD/.claude/env.sh"

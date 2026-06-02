@@ -1,0 +1,33 @@
+# Paths the sandboxed agent must NOT see (goal 3: deny, not even read).
+#
+# Each existing path listed here is masked by mounting an empty, unreadable
+# (chmod 000) directory over it, so inside the container the agent finds an empty
+# dir/file instead of the contents. Read by the per-worktree launcher (.agent/run)
+# at every launch -- edit freely; changes take effect on the next launch, for all
+# worktrees, with no re-render. (The launcher reads this copy from the TOPLEVEL
+# ch_dev, so edit it there.)
+#
+# Syntax: one path per line. A leading ~ (or $HOME) expands to your home dir.
+# Globs are expanded. Lines starting with # and blank lines are ignored.
+# Non-existent paths are silently skipped.
+#
+# Do NOT list ~/.claude here -- it is shared read-write so the agent can use your
+# Claude subscription auth (see README.md "Auth"). Everything not listed here and
+# not granted read-write by readwrite.txt is already read-only.
+
+~/.ssh
+~/.pypirc
+~/.aws
+~/.gnupg
+~/.netrc
+~/.git-credentials
+
+# The whole ~/.config dir can hold secrets (gh tokens, etc.), so mask it all. If
+# a build/test turns out to need a *non-secret* tool config that lives there
+# (e.g. pip, matplotlib), delete this line and list the specific secret subpaths
+# instead, leaving the harmless ones readable.
+~/.config
+
+# ~/.claude.json is unused inside the container (CLAUDE_CONFIG_DIR points the
+# agent at ~/.claude/.claude.json instead), but uncomment to hide it too.
+# ~/.claude.json

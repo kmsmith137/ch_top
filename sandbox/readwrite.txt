@@ -1,0 +1,18 @@
+# Extra paths the sandboxed agent may READ AND WRITE (goal 2), on top of the ones
+# the launcher always grants automatically:
+#   - this worktree (its own working tree, .venv, build outputs);
+#   - each repo's shared .git object store, so `git commit` works (its config
+#     file and hooks/ dir are kept read-only -- see README.md Appendix E);
+#   - ~/.claude, shared so the agent uses your Claude subscription auth.
+#
+# Read by the per-worktree launcher (.agent/run) at every launch -- edit freely;
+# changes take effect on the next launch, for all worktrees, with no re-render.
+# (The launcher reads this copy from the TOPLEVEL ch_dev, so edit it there.)
+#
+# Syntax: one path per line. A leading ~ (or $HOME) expands to your home dir.
+# Globs are expanded. Lines starting with # and blank lines are ignored.
+# Non-existent paths are silently skipped. Anything not listed here (and not
+# masked by deny.txt) is read-only.
+
+# Example -- a shared dataset dir the agent should be able to write back to:
+# /data/chord/scratch

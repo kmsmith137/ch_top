@@ -1,0 +1,20 @@
+# Device nodes passed into the container with --device (goal 5: GPU / NIC access,
+# capped at what your account can already open).
+#
+# Read by the per-worktree launcher (.agent/run) at every launch -- edit freely;
+# changes take effect on the next launch, for all worktrees, with no re-render.
+# (The launcher reads this copy from the TOPLEVEL ch_dev, so edit it there.)
+#
+# Syntax: one path or glob per line. Globs are expanded and only existing
+# CHARACTER devices are passed, so the /dev/nvidia-caps directory is skipped
+# automatically and absent nodes are ignored. Lines starting with # and blank
+# lines are ignored. To restrict to a single GPU, replace the glob with the
+# explicit nodes (e.g. /dev/nvidia0 + /dev/nvidiactl + /dev/nvidia-uvm*).
+
+# All NVIDIA GPUs (nvidia0..N, nvidiactl, nvidia-modeset, nvidia-uvm, -uvm-tools):
+/dev/nvidia*
+
+# RDMA / InfiniBand verbs -- uncomment if pirate needs them (the user account can
+# open these world-rw nodes; see podman-sandbox-design.md):
+# /dev/infiniband/rdma_cm
+# /dev/infiniband/uverbs*

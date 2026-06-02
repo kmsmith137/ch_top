@@ -9,8 +9,9 @@ the ch_dev .venv. Idempotent: existing clones are left in place (only submodules
 are refreshed; a branch mismatch is warned about, not changed).
 
 The toplevel ch_dev is your *unsandboxed* management workspace (you run these
-scripts here, and they must write outside the dir), so no sandbox
-.claude/settings.json is rendered for it -- only .envrc for venv activation.
+scripts here, and they must write outside the dir), so no Podman sandbox launcher
+(.agent/run) is rendered for it -- only .envrc + .claude/env.sh for venv
+activation.
 """
 from __future__ import annotations
 

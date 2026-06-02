@@ -96,7 +96,7 @@ def build(workdir, *, recreate: bool = False, test: bool = False) -> None:
     # from sys.path[0] as empty PEP 420 namespace packages, shadowing the
     # editable-installed packages -- hiding ksgpu's __init__.py and its ctypes
     # RTLD_GLOBAL trick (=> "undefined symbol: ksgpu::convert_array_from_python").
-    # The worktree env (.envrc / .claude/settings.json) also sets
+    # The worktree env (.envrc / .claude/env.sh, and the launcher's -e) also sets
     # PYTHONSAFEPATH=1 to neutralize this for every cwd, but init_venv must not
     # depend on that being active -- it can run during first-time setup, before
     # those dotfiles exist. See README.md "cwd shadowing".

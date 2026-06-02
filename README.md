@@ -7,16 +7,18 @@ It's my personal system for organizing CHORD development into multiple
 git worktrees, with a small number (usually one) of LLM agents per worktree.
 
  - Orchestration scripts for creating/deleting worktrees with pre-initialized
-   dotfiles (`.envrc`, `.claude/*`), and moving commits around.
+   dotfiles (`.envrc`, `.claude/*`, `.agent/run`), and moving commits around.
  
  - Allows multiple git repos in each worktree (currently `ch_dev`, `ksgpu`, `pirate`).
  
  - Each worktree has its own venv, which is automatically activated/deactivated.
    (For humans, this is done with `direnv`. For LLMs, this is done with `.claude/*`.)
  
- - Sandboxing: per-worktree agents run with os-level filesystem sandboxing,
-   and therefore don't need to request permission very often. (The "top-level"
-   ch_dev agent(s) aren't sandboxed, only the agents that run in worktrees.)
+ - Sandboxing: per-worktree agents run inside a rootless-Podman container
+   (launched with `./.agent/run`) under `--dangerously-skip-permissions`, so they
+   do real work -- including GPU compute -- with no permission prompts, while
+   being unable to read your secrets or escape the container. (The "top-level"
+   ch_dev agent(s) aren't containerized, only the agents that run in worktrees.)
 
 ## Contents
 
@@ -29,8 +31,8 @@ git worktrees, with a small number (usually one) of LLM agents per worktree.
 - [Gotchas](#gotchas)
 - [Appendix A: cwd shadowing](#appendix-a-cwd-shadowing)
 - [Appendix B: activating the per-worktree venv for an agent](#appendix-b-activating-the-per-worktree-venv-for-an-agent)
-- [Appendix C: GPU compute inside the sandbox](#appendix-c-gpu-compute-inside-the-sandbox)
-- [Appendix D: sandbox security trade-offs and mitigations](#appendix-d-sandbox-security-trade-offs-and-mitigations)
+- [Appendix C: GPU compute inside the container](#appendix-c-gpu-compute-inside-the-container)
+- [Appendix D: container sandbox security trade-offs](#appendix-d-container-sandbox-security-trade-offs)
 - [Appendix E: git commit from a worktree (shared .git)](#appendix-e-git-commit-from-a-worktree-shared-git)
 
 ## Layout
@@ -58,7 +60,7 @@ Note that we don't use git submodules or git subtrees.
     # per feature:
     python3 init_worktree.py ch_myfeature    # make ../ch_myfeature (worktrees + venv)
     cd ../ch_myfeature && direnv allow .
-    tmux new -s ch_myfeature && claude       # run the agent from the worktree
+    tmux new -s ch_myfeature && ./.agent/run # run the sandboxed agent (claude in a container)
 
     # the two init_* scripts above build the .venv for you (via init_venv.py);
     # run init_venv.py directly only to REBUILD an existing workspace's venv:
@@ -81,8 +83,9 @@ idempotent and safe to re-run.
 
 ## One-time setup (per machine)
 
-The `init_*.py` scripts assume a machine prepared like this. Steps 3-4 (sandbox)
-are optional -- skip them if you don't use the Claude Code sandbox.
+The `init_*.py` scripts assume a machine prepared like this. Step 3 (Podman) is
+only needed for the per-worktree agent sandbox -- skip it if you only use the
+unsandboxed toplevel.
 
 **Prerequisites:**
 
@@ -91,9 +94,10 @@ are optional -- skip them if you don't use the Claude Code sandbox.
 - **`git` >= 2.40** and **SSH access to the GitHub repos**: the manifest clones
   via a `github:` host alias in `~/.ssh/config`, so have your key in an ssh-agent.
   Needed so `init_toplevel.py` can clone, and so you can `git push`.
-- **`node`/`npm`** -- only for the sandbox seccomp helper (step 3).
-- **`~/.local/bin` on `$PATH`, ahead of `/usr/bin`** -- `claude`, `direnv`, and
-  the bwrap shim live there.
+- **rootless Podman** -- the per-worktree sandbox (step 3). On this host it works
+  with no `/etc/subuid`, no `docker` group, and no root.
+- **`~/.local/bin` on `$PATH`, ahead of `/usr/bin`** -- `claude` and `direnv`
+  live there.
 
 **1. Conda toolchain env.** Create a conda env with the compiled dependencies
 (cupy, cuda-nvcc, cublas/cufft/curand, mathdx, grpc-cpp + grpcio + grpcio-tools +
@@ -105,7 +109,8 @@ authoritative list is in `ksgpu/README.md` and `pirate/notes/install.md`; roughl
       cupy mathdx pybind11 yaml-cpp asdf argcomplete setuptools=80
 
 Nothing in ch_dev names this env; the scripts seed each `.venv` from whatever
-`python` is active. Activate it in `~/.bashrc`:
+`python` is active (and the sandbox launcher bakes in the active `CONDA_PREFIX`).
+Activate it in `~/.bashrc`:
 
     conda activate ENVNAME
 
@@ -121,39 +126,24 @@ Add the hook to `~/.bashrc`, AFTER the `conda activate` line:
 
 Each worktree's `.envrc` then needs a one-time `direnv allow ~/ch_<feature>`.
 
-**3. Sandbox dependencies** (optional). Install bubblewrap (the sandbox), socat
-(network proxy), and the seccomp filter (Unix-socket blocking):
+**3. Sandbox (rootless Podman)** (optional). The per-worktree agent runs inside a
+rootless-Podman container. On this host Podman needs no special setup -- no
+`/etc/subuid`/`/etc/subgid` ranges, no `docker` group, no root (it uses a
+single-id user namespace, so container `uid 0` maps to your host user). Install it
+and pull the base image:
 
-    sudo apt-get install bubblewrap socat
-    sudo npm install -g @anthropic-ai/sandbox-runtime
+    sudo apt-get install podman        # or have podman on $PATH
+    podman pull docker.io/library/ubuntu:24.04
 
-On Ubuntu 24.04+ the default AppArmor policy blocks the unprivileged user
-namespaces bwrap needs. If `sysctl kernel.apparmor_restrict_unprivileged_userns`
-returns `1`, add a profile granting bwrap the `userns` capability:
+`init_worktree.py` pulls the image for you if it is missing, so the explicit pull
+is optional. The base image **must match the host distro** (Ubuntu 24.04): the
+container overlays the host `/usr` read-only to get your real toolchain + NVIDIA
+driver libs, so a mismatched glibc breaks the dynamic loader. Bump `SANDBOX_IMAGE`
+in `ch_dev_helpers.py` when you upgrade the host.
 
-    sudo tee /etc/apparmor.d/bwrap >/dev/null <<'EOF'
-    abi <abi/4.0>,
-    include <tunables/global>
-    profile bwrap /usr/bin/bwrap flags=(unconfined) {
-      userns,
-      include if exists <local/bwrap>
-    }
-    EOF
-    sudo systemctl reload apparmor
-
-Verify: run `/sandbox` in Claude. If it shows the normal Mode / Overrides /
-Config tabs (not a Dependencies-only view), all deps are present.
-
-**4. GPU inside the sandbox** (optional). Install the no-root `bwrap` shim that
-makes the GPU visible inside the sandbox (the *why* is Appendix C):
-
-    install -m 0755 misc/bwrap_shim ~/.local/bin/bwrap
-    hash -r; command -v bwrap          # must print ~/.local/bin/bwrap
-
-That is the only machine-wide GPU step. The matching per-worktree settings are
-rendered automatically by `init_worktree.py` (Appendix C/D). After it, launch
-`claude` from a worktree and `nvidia-smi`, `pirate_frb test -n 1`, and cupy all
-run on the GPU.
+Verify: `podman run --rm docker.io/library/ubuntu:24.04 true` exits 0. GPU compute
+then works automatically (device passthrough + host CUDA libs) -- no shim, no
+seccomp tweak, no `nvidia-container-toolkit`; see Appendix C.
 
 ## Scripts
 
@@ -164,8 +154,8 @@ run on the GPU.
 - `init_toplevel.py` -- one-time: clone/checkout each repo, init submodules,
   build the `ch_dev` `.venv`. Idempotent.
 - `init_worktree.py NAME [--no-venv]` -- create `../NAME`: a worktree of ch_dev +
-  each repo (new branch NAME off each integration branch), render the dotfiles,
-  build the `.venv`.
+  each repo (new branch NAME off each integration branch), render the dotfiles +
+  the sandbox launcher, ensure the base image is present, build the `.venv`.
 - `init_venv.py [WORKDIR] [--recreate] [--test]` -- (re)build a workspace's
   `.venv` overlay. Called by the two scripts above; also runnable standalone.
 - `delete_worktree.py NAME [--force]` -- tear a feature workspace down (keeps the
@@ -181,22 +171,31 @@ run on the GPU.
   integration branch (land up; the merge itself runs in the toplevel checkout,
   where the integration branch lives). See "Branch workflow" below.
 - `ch_dev_helpers.py` -- shared helpers (manifest, paths, dotfile rendering,
-  the multi-repo git logic).
+  the multi-repo git logic). Holds `SANDBOX_IMAGE` (the container base image) and
+  `ensure_sandbox_image()`.
 - `dotfile_templates/` -- source templates for `.envrc`, `.claude/env.sh`, and
-  the per-worktree sandbox `.claude/settings.json`. `render_dotfiles` substitutes
-  `{{WORKTREE}}`, `{{UID}}`, and the shared-`.git` paths (Appendix D/E).
-- `misc/bwrap_shim` -- no-root GPU shim for the sandbox (setup step 4, Appendix C).
+  the per-worktree Podman launcher `.agent/run`. `render_dotfiles` substitutes
+  `{{WORKTREE}}` (in `.envrc`/`env.sh`) and `{{CONDA}}`/`{{IMAGE}}` (in the
+  launcher); the deny/read-write/device policy is read at launch from `sandbox/`,
+  not baked in.
+- `sandbox/` -- editable policy lists the launcher reads at every launch (so edits
+  take effect immediately, for every worktree, with no re-render): `deny.txt`
+  (paths masked from the agent), `readwrite.txt` (extra writable paths),
+  `devices.txt` (device nodes; default: all GPUs). The launcher reads these from
+  the TOPLEVEL ch_dev, so edit them there. See Appendices C-E.
 
 ## Daily workflow
 
 **Run the agent from inside the worktree.** `cd ~/ch_<feature>` (direnv fires,
-activating the venv and exporting `CLAUDE_ENV_FILE`), then `claude`. Verify with
+activating the venv and exporting `CLAUDE_ENV_FILE`), then `./.agent/run`. This
+launches `claude` inside the worktree's rootless-Podman sandbox; inside it,
 `which python` -> `~/ch_<feature>/.venv/bin/python`. Launching from elsewhere
-breaks venv activation for the agent (Appendix A).
+breaks venv activation for the agent (Appendix A/B). To get an *unsandboxed* shell
+in the worktree instead, run plain `claude`.
 
 **Committing.** A commit in a worktree is immediately part of each repo's shared
 history (no inter-worktree push). Commit per-repo as usual, or use `git-status.py`
-to see all 3 at once. In a sandboxed worktree, `git commit` works without a
+to see all 3 at once. From inside the sandbox, `git commit` works without a
 prompt (Appendix E).
 
 **Branch workflow (rebase-then-fast-forward).** Each feature is the same branch
@@ -249,32 +248,45 @@ rebase, which git refuses mid-rebase. Use `git rebase --continue`/`--abort`
 directly. `git rebase --abort` is always safe: a rebase is fully undoable until
 it finishes, so it is safe to attempt one just to see the conflicts.
 
-**Pushing / fetching is done by you, outside the sandbox.** The sandbox denies
-`~/.ssh` and network egress, so the agent commits locally only; you `git push` /
-`git fetch` from your own shell when ready.
+**Pushing / fetching is done by you, outside the sandbox.** The container masks
+`~/.ssh`, `~/.git-credentials`, and `~/.netrc` and never passes in
+`SSH_AUTH_SOCK`, so the agent has no usable push credentials -- it commits locally
+only; you `git push` / `git fetch` from your own shell when ready. (Network egress
+itself is open inside the container -- Model B needs it for the Anthropic API; see
+Appendix D.)
 
-**The toplevel `ch_dev` is intentionally NOT sandboxed** -- it is where you run
-these management scripts, which must write outside their own directory (clone
+**The toplevel `ch_dev` is intentionally NOT containerized** -- it is where you
+run these management scripts, which must write outside their own directory (clone
 repos, create sibling worktrees). Feature worktrees ARE sandboxed.
 
 ## Sandbox and GPU (summary)
 
-Feature-worktree `.claude/settings.json` (rendered by `init_worktree.py`) is set
-up so an agent can do real work -- including GPU compute -- with minimal prompts:
+`./.agent/run` (rendered into each feature worktree by `init_worktree.py`)
+launches `claude` inside a per-worktree **rootless-Podman** container with
+`--dangerously-skip-permissions` (plus `IS_SANDBOX=1`). The kernel/container is
+the security boundary, so the agent does real work -- including GPU compute --
+with **zero permission prompts**, and escaping is not possible. The mount
+manifest IS the security model:
 
-- **`permissions.defaultMode: "acceptEdits"`** -- file edits auto-accept;
-  sandboxed Bash auto-runs (the sandbox boundary is the safety layer). You are
-  still prompted only for genuine escapes (a new network domain, or a command
-  that falls back to running unsandboxed).
-- **GPU compute works** -- via the machine-wide shim (setup step 4) plus
-  per-worktree settings. Two distinct barriers had to be removed; see Appendix C.
-- **Security mitigations** offset the one broad setting GPU compute requires
-  (`allowAllUnixSockets`); see Appendix D.
-- **`git commit` works** without escaping the sandbox; see Appendix E.
+- **Read-only base (no escalation)** -- every real top-level host dir is
+  bind-mounted at its real path `:ro`, recreating your exact environment (conda
+  env, system CUDA, the `claude` install, other worktrees). The single-id userns
+  caps every read at your account: host-root files (e.g. `/etc/shadow`) map to
+  `nobody` and are unreadable.
+- **Read-write holes (do work + commit)** -- the worktree, each repo's shared
+  `.git` (Appendix E), and `~/.claude` (shared subscription auth, written back on
+  token refresh). Extra paths via `sandbox/readwrite.txt`. Files are owned by you
+  on the host.
+- **Masked secrets (deny)** -- each path in `sandbox/deny.txt` (`~/.ssh`,
+  `~/.config`, PyPI/AWS/GPG creds, ...) is shadowed by an empty, unreadable node.
+- **GPU (compute)** -- NVIDIA nodes via `--device` (`sandbox/devices.txt`) + host
+  CUDA libs (RO) + default seccomp. No shim, no seccomp override (Appendix C).
 
-These are machine-specific (absolute paths, your UID), so the rendered
-`.venv`, `.envrc`, and `.claude/{env.sh,settings.json}` are gitignored; only the
-templates are tracked.
+The `sandbox/` lists are plain text, read at every launch, so you edit them and
+just re-launch -- no re-render. The launcher, `.venv`, `.envrc`, and
+`.claude/env.sh` are machine-specific and gitignored; the templates and
+`sandbox/*.txt` are tracked. Security trade-offs (open egress, `IS_SANDBOX`,
+writable object store) are in Appendix D.
 
 ## Gotchas
 
@@ -302,9 +314,9 @@ never *directly* shadowed -- it only fails transitively via `ksgpu`.)
 
 Three layers guard against this, so you normally never see it:
 
-1. Each worktree's `.envrc` (for you) and `.claude/env.sh` + `settings.json` env
-   (for agents) set `PYTHONSAFEPATH=1`, which drops the current directory from
-   `sys.path` for every Python invocation -- verified safe for the build too.
+1. Each worktree's `.envrc` (for you) and `.claude/env.sh` plus the launcher's
+   `-e PYTHONSAFEPATH=1` (for agents) drop the current directory from `sys.path`
+   for every Python invocation -- verified safe for the build too.
 2. `pirate_frb/__init__.py` detects the shadow and raises a clear, actionable
    error instead of the cryptic undefined-symbol crash.
 3. `init_venv.py` runs its smoke test from a throwaway directory.
@@ -321,126 +333,115 @@ Activating the venv for an *agent* is trickier than for a human. Claude Code
 sources `~/.bashrc` (your conda activation) once at session start, does NOT
 persist env between Bash commands, and its `settings.json` `env` values are NOT
 variable-expanded -- so `"PATH": ".venv/bin:${PATH}"` would be set to that literal
-string and clobber PATH (dropping `~/.local/bin`, where `claude` lives). The
-mechanism that works is Claude's **`CLAUDE_ENV_FILE`**: a script Claude sources
-before every Bash command, where `$PATH` *does* expand.
+string and clobber PATH. The mechanism that works is Claude's **`CLAUDE_ENV_FILE`**:
+a script Claude sources before every Bash command, where `$PATH` *does* expand.
 
-- `.envrc` exports `CLAUDE_ENV_FILE="$PWD/.claude/env.sh"`.
+- `.envrc` exports `CLAUDE_ENV_FILE="$PWD/.claude/env.sh"` (for `claude` run
+  directly on the host). The worktree launcher `.agent/run` passes the same path
+  into the container with `-e CLAUDE_ENV_FILE`, so it applies there too.
 - `.claude/env.sh` (generated) does `export PATH="<worktree>/.venv/bin:$PATH"`
-  (plus `VIRTUAL_ENV`, `PYTHONSAFEPATH`, and the sandbox env `CUPY_CACHE_DIR` +
-  `unset SSH_AUTH_SOCK`). It is sourced *after* bashrc's conda activation, so the
-  venv wins.
+  (plus `VIRTUAL_ENV`, `PYTHONSAFEPATH`). It is sourced *after* bashrc's conda
+  activation, so the venv wins.
 
-Hence "launch `claude` from the worktree": it inherits `CLAUDE_ENV_FILE` from
-the `.envrc` direnv already loaded. `settings.json` `env` still sets
-`VIRTUAL_ENV` + `PYTHONSAFEPATH`, but it cannot set PATH.
+Inside the container the launcher also sets `VIRTUAL_ENV`, `PYTHONSAFEPATH`,
+`CONDA_PREFIX`, `CUPY_CACHE_DIR`, and a baseline `PATH` (venv : conda : cuda :
+system dirs) via `-e`; `~/.bashrc` still runs `conda activate`, and `env.sh`
+layers the venv on top for each Bash command. Hence "launch the agent from the
+worktree": `./.agent/run` self-locates the worktree and wires all of this up.
 
 The `init_*` scripts themselves also feel `PYTHONSAFEPATH=1`: once direnv has run
 in ch_dev, a bare `import ch_dev_helpers` would fail (the script dir is dropped
 from `sys.path`), so each entry-point script prepends its own directory to
 `sys.path` before importing.
 
-# Appendix C: GPU compute inside the sandbox
+# Appendix C: GPU compute inside the container
 
-Claude's Bash sandbox (bubblewrap) blocks GPU *compute* via two independent
-barriers. Both must be removed; the fixes are orthogonal and both wired into the
-setup (machine-wide shim + per-worktree template).
+Under rootless Podman the GPU "just works" -- none of the bubblewrap-era tricks
+are needed. The launcher:
 
-Symptom -> barrier:
+- passes the NVIDIA device nodes with `--device` (from `sandbox/devices.txt`,
+  default glob `/dev/nvidia*` -> all GPUs; only existing character devices are
+  passed, so the `/dev/nvidia-caps` directory is skipped automatically);
+- mounts the host `/usr` (and `/etc`) read-only, which brings the matching NVIDIA
+  driver libs + the CUDA runtime (`/usr/local/cuda` lives under `/usr`). This is
+  *why* the base image must be the same Ubuntu release -- the host glibc/loader is
+  overlaid and must match;
+- runs under the **default** seccomp profile, and adds `--ipc host` +
+  `--ulimit memlock=-1:-1` for CUDA pinned memory / RDMA.
 
-    nvidia-smi fails ("couldn't communicate with the NVIDIA driver")  -> Barrier 1
-    nvidia-smi works, but cudaSetDevice/compute fails with code 304    -> Barrier 2
+Verified live on this host: `nvcc` compiles and runs a kernel, and a `cupy`
+reduction returns the right answer -- no `cudaSetDevice ... 304`, no shim. The two
+bubblewrap barriers are simply absent here: Podman builds a normal `/dev` and we
+*add* the GPU nodes (so no `--dev` devtmpfs hides them), and the default seccomp
+profile does not nest PID/mount namespaces (so NVIDIA UVM is not broken). No
+`nvidia-container-toolkit` is required.
 
-**Barrier 1 -- device nodes (the shim).** The sandbox builds a fresh `/dev` with
-`bwrap --dev /dev`, a minimal devtmpfs that does NOT contain the `/dev/nvidia*`
-nodes, so CUDA sees no devices. There is no `settings.json` knob for device binds
-(the sandbox even drops `/dev/*` entries from `allowWrite`). The fix is a thin
-shim around `bwrap` (`misc/bwrap_shim`) that injects
-`--dev-bind-try /dev/nvidiaX /dev/nvidiaX` for each GPU node immediately after the
-`--dev /dev` that creates the fresh devtmpfs (the binds MUST come after it, or the
-fresh mount shadows them). Claude resolves the bwrap binary through `$PATH` (it
-spawns `bwrap` unqualified; the `bwrapPath` setting is managed-only), so a shim at
-`~/.local/bin/bwrap` -- ahead of `/usr/bin` -- intercepts it with NO root. The
-shim is a no-op for bwrap calls that don't create a fresh `/dev`. (A root
-`dpkg-divert` install is possible but unnecessary; the shim header documents it.)
+Re-verify after a Podman or host-driver upgrade with a real compute test (a `cupy`
+reduction, or `pirate_frb test -n 1`). `nvidia-smi` alone is NOT sufficient -- it
+opens no CUDA context, so it can pass while compute fails.
 
-**Barrier 2 -- the seccomp stage (`allowAllUnixSockets`).** Even with the nodes
-present, CUDA context init fails: `cudaSetDevice(...) returned 304` (OS call
-failed). To enforce its Unix-socket block, the sandbox wraps the command in
-`apply-seccomp`, which creates a nested PID + mount namespace and remounts
-`/proc`. NVIDIA's UVM / CUDA context init does not survive that nesting and
-returns 304. (`nvidia-smi` is unaffected: it opens no CUDA context, so no UVM.)
-The fix is `"network": { "allowAllUnixSockets": true }` in the worktree
-`settings.json`, which skips the `apply-seccomp` stage entirely. This is a
-first-class sandbox-runtime key; it was preferred over patching/forking
-`apply-seccomp` (a maintained binary kept in sync on every upgrade, and the exact
-sub-step that breaks UVM was never isolated). The template sets it, along with
-`CUPY_CACHE_DIR=/tmp/cupy_cache` (cupy's default `~/.cupy` is read-only in the
-sandbox; `/tmp` is writable).
+# Appendix D: container sandbox security trade-offs
 
-Re-verify after upgrading `@anthropic-ai/sandbox-runtime` or Claude Code: the
-repro is the outer bwrap with vs without `apply-seccomp` around
-`ksgpu.set_cuda_device(0)`.
+For a trusted single-user dev box these are acceptable trades; know what they are.
 
-# Appendix D: sandbox security trade-offs and mitigations
+**Network egress is open.** Model B runs `claude` *inside* the container, so the
+container needs the Anthropic API -- `--network host`. The agent could therefore
+reach arbitrary hosts. It **cannot push or exfiltrate via your keys**: `~/.ssh`,
+`~/.git-credentials`, and `~/.netrc` are masked (`deny.txt`) and `SSH_AUTH_SOCK`
+is never passed in (the host agent sockets live in `/tmp`,`/run`, which are
+private tmpfs inside the container, so they are simply absent). It **can** read
+the shared Claude OAuth token in `~/.claude` and, with open egress, send it out;
+the damage is bounded by your subscription scope (rate limits, not metered $). To
+cap it you could give agents a dedicated `~/.claude-agents` config dir with its
+own login, or run a `pasta`/`slirp4netns` egress allowlist (only
+`api.anthropic.com` + your package mirror) instead of `--network host` -- recorded
+as a future tightening, not built now.
 
-The two GPU fixes weaken the sandbox in specific ways. For a trusted single-user
-dev box these are acceptable trades, but know what they are. Filesystem, network,
-and secret-file isolation (`~/.ssh`, etc.) are otherwise unchanged.
+**Container `uid 0` = your host uid.** With no `/etc/subuid` range the userns is
+single-id, so the container process is `uid 0` mapped to you. Cosmetic (writes are
+owned by you; host-root files still appear as `nobody` and are unreadable -- the
+read cap holds), but it requires `IS_SANDBOX=1`, an **undocumented** Claude env
+var that lets `claude` accept `--dangerously-skip-permissions` as `uid 0`.
+Re-check after `claude` upgrades that this still works. (If an admin adds subuid
+ranges you could run as a mapped non-root uid and drop `IS_SANDBOX`.)
 
-**The shim exposes the GPU to every bubblewrap sandbox you run** (not just
-Claude), since it intercepts `bwrap` on `$PATH`. The injection only fires when a
-`--dev` arg is present, which limits it, but keep the shim minimal and audited --
-it is code in your sandbox's trusted setup path.
+**The shared object store is writable.** The agent can rewrite refs/history in the
+main checkouts' `.git` (Appendix E); only `config` and `hooks/` are protected,
+history is not.
 
-**`allowAllUnixSockets` disables the sandbox's block on connecting to host
-Unix-domain sockets.** That block's job is to stop a sandboxed process from
-reaching host services over `AF_UNIX`. The two that matter here are re-closed by
-the template:
+**`--network host` + `--group-add keep-groups`** give the agent your network
+namespace and your supplementary-group reads (`chord-dev`, ...). Fine on a trusted
+single-user box; not a defense against a kernel-exploit-grade adversary.
 
-- **ssh-agent** -- `.claude/env.sh` does `unset SSH_AUTH_SOCK`. This is the
-  primary, path-independent guard: ssh/git/ssh-add then find no agent regardless
-  of socket path (including the unpredictable `/tmp/ssh-XXXX` that
-  `eval $(ssh-agent)` creates, which `denyRead` can't target). Costs nothing --
-  agents commit locally; you push/fetch outside the sandbox.
-- **docker socket** -- `denyRead` masks `/run/docker.sock` (membership in the
-  `docker` group makes it root-equivalent). One entry covers both `/run` and the
-  `/var/run -> /run` symlink; do NOT also list `/var/run/docker.sock` -- bwrap
-  can't make a mountpoint through the symlink and sandbox setup then fails.
-- **ssh-agent fixed path** -- `denyRead` also masks
-  `/run/user/<UID>/ssh-agent.socket` (the predictable systemd path) as
-  belt-and-suspenders. `render_dotfiles` fills `<UID>` from `os.getuid()`.
+**Secrets are masked, not deleted.** Each path in `deny.txt` is shadowed by an
+empty unreadable dir (for a directory) or file (for a file); the agent sees an
+empty node, not the contents. Masking hides contents, not existence.
 
-**Residual risk (accepted):** `unset SSH_AUTH_SOCK` defeats *cooperative* clients
--- the real threat, your own agent misusing a key. It does NOT stop code that
-deliberately scans `/tmp` + `/run` for socket inodes and connects by raw path.
-Closing that means re-enabling the AF_UNIX block, which re-breaks CUDA -- the same
-trade as exposing the GPU at all.
+**The base image must track the host distro** (host `/usr` is overlaid); bump
+`SANDBOX_IMAGE` on a host upgrade and re-verify GPU + a build.
 
 # Appendix E: `git commit` from a worktree (shared .git)
 
 A commit in a feature worktree writes to each repo's SHARED `.git` common-dir,
 which in this nested layout lives in the main checkout (`ch_dev/.git`,
-`ch_dev/ksgpu/.git`, `ch_dev/pirate/.git`) -- OUTSIDE the worktree, so read-only
-under the sandbox by default. The agent would otherwise be prompted for every
-commit (and Claude's built-in "allow the worktree's shared `.git`" handles only
-the normal sibling layout, not these three nested dirs).
+`ch_dev/ksgpu/.git`, `ch_dev/pirate/.git`) -- OUTSIDE the worktree, so under the
+container's read-only base it would be read-only and the commit would fail.
 
-`render_dotfiles` resolves those common-dirs (`git rev-parse --git-common-dir`,
-kept only when outside the worktree) and templates them into the worktree
-`settings.json`:
+At launch the `.agent/run` script resolves those common-dirs (`git -C <repo>
+rev-parse --git-common-dir`, kept only when the result is outside the worktree)
+and bind-mounts each one:
 
-- **`allowWrite`** the shared `.git` dirs -> `git commit` works with no prompt.
-- **`denyWrite`** each dir's `hooks/` and `config`. This matters: those are
-  code/settings that execute in YOUR unsandboxed shell, and because they sit
-  outside the worktree, the sandbox's built-in hooks/config denial (which scans
-  only the cwd) does not cover them -- so we mask them explicitly. Verified: a
-  commit succeeds, while overwriting `.git/config` or planting a
-  `.git/hooks/post-commit` are both blocked.
+- the common-dir itself `:rw` -> `git commit` writes objects/refs with no prompt;
+- its `config` file and `hooks/` dir `:ro` on top. Podman applies the deeper mount
+  last, so the read-only `config`/`hooks` win over the read-write parent. This
+  matters: `config` and `hooks/` are settings/code that execute in YOUR
+  unsandboxed shell, so the agent must not be able to write them.
 
-Note the residual: the agent can write the shared object store and refs of the
-main checkouts, so it could in principle rewrite refs/history there (not just in
-its own worktree). `config`/`hooks` are protected; history is not.
+Verified live: inside the container a `git commit` succeeds, while appending to
+`.git/config` or planting `.git/hooks/post-commit` are both blocked (read-only
+fs). Note the residual (also in Appendix D): the agent can write the shared object
+store and refs, so it could in principle rewrite refs/history of the main
+checkouts -- `config`/`hooks` are protected, history is not.
 
-For a plain checkout (toplevel `ch_dev`), `.git` is inside the dir and already
-writable, so these placeholders render empty.
+For the toplevel `ch_dev` checkout, `.git` is inside the dir (and the toplevel is
+not containerized anyway), so there is nothing to bind.

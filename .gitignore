@@ -9,6 +9,7 @@
 .claude/env.sh
 .claude/settings.json
 .claude/settings.local.json
+.agent/
 
 # Ephemeral.
 plans/
