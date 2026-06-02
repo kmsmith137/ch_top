@@ -337,21 +337,44 @@ def venv_env(workdir: Path) -> dict:
     return env
 
 
-def render_dotfiles(workdir: Path, *, sandbox: bool) -> None:
+def _write_if_changed(path: Path, content: str, *, announce: bool, hint: str = "") -> bool:
+    """Write `content` to `path` only if it differs (or `path` is missing).
+
+    Returns True if it wrote (i.e. the file changed). When `announce` and it
+    wrote, prints an info() line. Avoids needless rewrites so re-rendering an
+    already-current worktree is a quiet no-op.
+    """
+    existing = path.read_text() if path.exists() else None
+    if existing == content:
+        return False
+    path.write_text(content)
+    if announce:
+        info(f"wrote {path}{hint}")
+    return True
+
+
+def render_dotfiles(workdir: Path, *, sandbox: bool, announce: bool = True) -> list:
     """Render the per-workspace dotfiles into workdir.
 
-    Always writes .envrc and .claude/env.sh; writes .claude/settings.json only
+    Always renders .envrc and .claude/env.sh; renders .claude/settings.json only
     when sandbox=True. Substitutes {{WORKTREE}} -> absolute workdir path and
     {{UID}} -> this user's numeric UID (baked into the sandbox ssh-agent-socket
     deny path, which is machine-specific). A literal $PATH in env.sh is left
     untouched (the shell expands it when Claude sources the file before each
     Bash command).
+
+    Files are written only if their content changed (idempotent re-render).
+    Returns the list of Paths actually written. With announce=True (default)
+    prints an info() line per written file; callers that want their own
+    reporting (e.g. git-rebase-down.py) pass announce=False.
     """
     workdir = Path(workdir).resolve()
+    changed = []
 
     envrc = (TEMPLATES / "envrc.tmpl").read_text()
-    (workdir / ".envrc").write_text(envrc)
-    info(f"wrote {workdir / '.envrc'}  (then run: direnv allow {workdir})")
+    if _write_if_changed(workdir / ".envrc", envrc, announce=announce,
+                         hint=f"  (then run: direnv allow {workdir})"):
+        changed.append(workdir / ".envrc")
 
     claude_dir = workdir / ".claude"
     claude_dir.mkdir(exist_ok=True)
@@ -360,8 +383,8 @@ def render_dotfiles(workdir: Path, *, sandbox: bool) -> None:
     # which .envrc exports); it prepends the venv to PATH -- the one thing
     # settings.json 'env' cannot do, since it does not expand ${PATH}.
     env_sh = (TEMPLATES / "claude-env.sh.tmpl").read_text().replace("{{WORKTREE}}", str(workdir))
-    (claude_dir / "env.sh").write_text(env_sh)
-    info(f"wrote {claude_dir / 'env.sh'}")
+    if _write_if_changed(claude_dir / "env.sh", env_sh, announce=announce):
+        changed.append(claude_dir / "env.sh")
 
     if sandbox:
         # A commit in this worktree writes to each repo's SHARED .git (in the
@@ -380,5 +403,7 @@ def render_dotfiles(workdir: Path, *, sandbox: bool) -> None:
                     .replace("{{UID}}", str(os.getuid()))
                     .replace("{{SHARED_GITDIRS}}", allow)
                     .replace("{{SHARED_GITDIR_DENY}}", deny))
-        (claude_dir / "settings.json").write_text(settings)
-        info(f"wrote {claude_dir / 'settings.json'}")
+        if _write_if_changed(claude_dir / "settings.json", settings, announce=announce):
+            changed.append(claude_dir / "settings.json")
+
+    return changed

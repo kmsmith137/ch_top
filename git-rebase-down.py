@@ -61,11 +61,27 @@ def main() -> None:
 
     if not specs:
         wl.info("nothing to rebase.")
+        refresh_dotfiles()  # git may be current, but templates may have changed
         return
     worst, failed = wl.run_git_each(specs, dry_run=args.dry_run)
     if failed:
         wl.die(f"rebase failed/stopped in: {', '.join(failed)} "
                f"(resolve, then `git rebase --continue` in that repo)")
+    if not args.dry_run:
+        refresh_dotfiles()
+
+
+def refresh_dotfiles() -> None:
+    """Re-render this worktree's generated dotfiles (.envrc, .claude/*) from the
+    templates -- they are gitignored, so a rebase brings tracked files current
+    but leaves these frozen at creation time. Report any that changed."""
+    changed = wl.render_dotfiles(wl.ROOT, sandbox=True, announce=False)
+    if changed:
+        wl.info(f"refreshed {len(changed)} dotfile(s) from updated templates:")
+        for p in changed:
+            print(f"    {p}")
+    else:
+        wl.info("dotfiles already up to date with templates.")
 
 
 if __name__ == "__main__":
