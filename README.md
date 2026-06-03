@@ -9,7 +9,7 @@ git worktrees, with a small number (usually one) of LLM agents per worktree.
  - Orchestration scripts for creating/deleting worktrees with pre-initialized
    dotfiles (`.envrc`, `.claude/*`), and moving commits around.
  
- - Allows multiple git repos in each worktree (currently `ch_dev`, `ksgpu`, `pirate`).
+ - Allows multiple git repos in each worktree (currently `ch_dev`, `pipmake`, `ksgpu`, `pirate`).
  
  - Each worktree has its own venv, which is automatically activated/deactivated.
    (For humans, this is done with `direnv`. For LLMs, this is done with `.claude/*`.)
@@ -51,21 +51,23 @@ container, and only fixed system/home paths (`~/.ssh`, `~/miniforge3`, ...) are
 absolute. Contents of `$CH`:
 ```
   ch_dev/         -> plain clone (main branch)        [the "toplevel"]
+  ch_dev/pipmake  -> plain clone (main branch)
   ch_dev/ksgpu    -> plain clone (chord branch)
   ch_dev/pirate   -> plain clone (kms branch)
   ch_test/        -> a feature worktree of ch_dev (one per feature)
+  ch_test/pipmake -> git worktree of ch_dev/pipmake
   ch_test/ksgpu   -> git worktree of ch_dev/ksgpu
   ch_test/pirate  -> git worktree of ch_dev/pirate
   claude/         -> the sandboxed agent's CLAUDE_CONFIG_DIR (.claude.json,
                      .credentials.json, projects/; per-group, see "Sandbox and GPU")
-  extern/         -> external reference source trees (pipmake, chord-frb-sifter)
+  extern/         -> external reference source trees (chord-frb-sifter)
 ```
 We don't use git submodules or git subtrees.
 
 ## Quick start
 
     # one-time, in a fresh ch_dev clone:
-    ./init-toplevel                          # clone ksgpu+pirate, build ch_dev/.venv
+    ./init-toplevel                          # clone pipmake+ksgpu+pirate, build ch_dev/.venv
     direnv allow .                           # activate ch_dev's venv
 
     # per feature:
@@ -77,11 +79,11 @@ We don't use git submodules or git subtrees.
     # run init-venv directly only to REBUILD an existing workspace's venv:
     # ./init-venv . --recreate               # e.g. after a dependency/build change
 
-    # inspect all 3 repos at once (from any workspace):
+    # inspect all 4 repos at once (from any workspace):
     ./git-status                             # status + per-worktree branch relations
     ./git-diff [--stat|--cached|...]
 
-    # move commits between feature and integration branches (all 3 repos);
+    # move commits between feature and integration branches (all 4 repos);
     # both run from the worktree:
     cd ../ch_myfeature && ./git-rebase-down  # sync down: rebase onto integration
     cd ../ch_myfeature && ./git-merge-up     # land up: fast-forward integration
@@ -173,7 +175,7 @@ seccomp tweak, no `nvidia-container-toolkit`; see Appendix C.
 - `delete-worktree NAME [--force]` -- tear a feature workspace down (keeps the
   feature branches; `--force` overrides the dirty-tree check).
 - `git-status` / `git-diff [ARGS...]` -- run `git status` / `git diff`
-  across all 3 repos in the current workspace, under per-repo headers (extra args
+  across all 4 repos in the current workspace, under per-repo headers (extra args
   pass through to git). `git-status` also prints how each worktree branch
   relates to its integration branch, e.g. `pirate/ch_evrb is 2 commits ahead of
   pirate/kms`.
@@ -223,11 +225,12 @@ in that grouping dir then shares the login. See Appendix D.
 
 **Committing.** A commit in a worktree is immediately part of each repo's shared
 history (no inter-worktree push). Commit per-repo as usual, or use `git-status`
-to see all 3 at once. From inside the sandbox, `git commit` works without a
+to see all 4 at once. From inside the sandbox, `git commit` works without a
 prompt (Appendix E).
 
 **Branch workflow (rebase-then-fast-forward).** Each feature is the same branch
-name across all 3 repos; the integration branches are `main`/`chord`/`kms`. Two
+name across all 4 repos; the integration branches are `main` (ch_dev, pipmake),
+`chord` (ksgpu), `kms` (pirate). Two
 helpers move commits between a feature branch and its integration branch, keeping
 history linear (feature commits land individually, no merge bubbles). BOTH run
 from the worktree, and each infers the feature branch from what is checked out
@@ -250,7 +253,7 @@ you do want to tear one down, run from the toplevel:
 
     ~/ch/ch_dev/delete-worktree ch_<feature>
 
-It refuses (in any of the 3 repos) if the worktree has uncommitted changes,
+It refuses (in any of the 4 repos) if the worktree has uncommitted changes,
 stray untracked files, or commits not yet merged up -- then deletes each repo's
 feature branch with `git branch -d` (which itself refuses an unmerged branch, so
 nothing committed is lost). `--force` overrides the dir checks but still keeps

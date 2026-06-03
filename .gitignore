@@ -1,4 +1,5 @@
 # Inner repos: managed as plain clones via git_repositories.toml, not tracked.
+/pipmake/
 /ksgpu/
 /pirate/
 

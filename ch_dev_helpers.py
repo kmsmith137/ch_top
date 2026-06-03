@@ -324,18 +324,21 @@ def venv_env(workdir: Path) -> dict:
     return env
 
 
-# Repos to install into a workspace venv, in dependency order (ksgpu before
-# pirate). NOT derived from the manifest: build_venv hardcodes the per-repo
+# Repos to install into a workspace venv, in dependency order. pipmake comes
+# FIRST: it is the `pipmake` build backend that ksgpu/pirate declare, so it must
+# be installed (importable) in the venv before their --no-build-isolation editable
+# installs run. NOT derived from the manifest: build_venv hardcodes the per-repo
 # editable-install recipe, so when you add a repo to git_repositories.toml you
 # must also add it here (see the REMINDER in the manifest). The editable install
 # (`pip install --no-build-isolation -e .`) is what compiles the native libs:
-# pirate/ksgpu use the `pipmake` backend, whose build_editable runs `make
-# build_wheel` -- which builds the import-critical .so's. We deliberately do NOT
+# ksgpu/pirate use the `pipmake` backend, whose build_editable runs `make
+# build_wheel` -- which builds the import-critical .so's (pipmake itself is pure
+# Python, a plain setuptools editable install -- no make). We deliberately do NOT
 # run a separate `make`/`make all` first: `all` pulls in pirate's `lib` target,
 # whose `configs/asdf_header.yml` rule runs `python -m pirate_frb ...` (not
 # importable until AFTER the editable install, and its `> asdf_header.yml` redirect
 # would truncate that file). Installing is sufficient and correctly ordered.
-BUILD = ["ksgpu", "pirate"]
+BUILD = ["pipmake", "ksgpu", "pirate"]
 
 # Fast import check (always run). The heavy GPU unit test is gated behind test=.
 SMOKE_IMPORT = "import ksgpu, pirate_frb; print('import ok')"
@@ -374,22 +377,24 @@ def build_venv(workdir, *, recreate: bool = False, test: bool = False) -> None:
     pip = str(venv / "bin" / "pip")
     py = str(venv / "bin" / "python")
 
-    # Build backend for the --no-build-isolation editable installs.
-    run([pip, "install", "pipmake"], env=env)
     # `editables` must live IN the venv, not merely be visible via
     # --system-site-packages: an editable install's .pth imports it during
     # interpreter startup, before the conda site-packages are on sys.path, so the
     # conda copy is not yet importable and the .pth (hence the package it
     # registers) is silently dropped ("No module named 'editables'"). Force it
-    # into the venv's own site-packages.
+    # into the venv's own site-packages. (The `pipmake` build backend for the
+    # --no-build-isolation installs below is no longer pip-installed from PyPI --
+    # it is built from the workspace as the first BUILD entry, so it too lands in
+    # the venv ahead of ksgpu/pirate, which then import it at build time.)
     run([pip, "install", "--ignore-installed", "editables"], env=env)
 
     for name in BUILD:
         repo = workdir / name
         if not repo.is_dir():
             die(f"repo dir missing: {repo}  (run init-toplevel first?)")
-        # The editable install runs `make build_wheel` (via pipmake) to compile the
-        # native libs; no separate `make` step -- see the BUILD comment above.
+        # For ksgpu/pirate the editable install runs `make build_wheel` (via the
+        # pipmake backend) to compile the native libs; pipmake itself is a plain
+        # setuptools editable install. No separate `make` step -- see BUILD above.
         run([pip, "install", "--no-build-isolation", "-e", "."], cwd=str(repo), env=env)
 
     # Smoke test from a throwaway directory, NOT the workspace root. The root

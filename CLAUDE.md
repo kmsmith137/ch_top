@@ -1,7 +1,8 @@
-This directory is a "container" git repo that holds two sub-repos
+This directory is a "container" git repo that holds three sub-repos
 (plain standalone clones, not git submodules or subtrees):
 
   .          container repo with orchestration scripts
+  ./pipmake  pip build backend used to compile ksgpu/pirate
   ./ksgpu    GPU C++/CUDA core utils
   ./pirate   real-time FRB search engine
 
@@ -10,17 +11,19 @@ together as siblings inside a "grouping" dir -- any dir except $HOME itself (cal
 it $CH; ~/ch in these examples, ~/docker in this dev clone). Paths below are
 RELATIVE to $CH: the grouping-dir name is arbitrary, relative paths read the same
 inside the sandbox container, and only fixed system/home paths (e.g. ~/.ssh,
-~/miniforge3) are written absolute. We start by cloning all 3 repos into the
+~/miniforge3) are written absolute. We start by cloning all 4 repos into the
 toplevel (the "toplevel" repos):
 
   ch_dev/         -> plain clone pointed at github remote (main branch)   [toplevel]
+  ch_dev/pipmake  -> plain clone pointed at github remote (main branch)
   ch_dev/ksgpu    -> plain clone pointed at github remote (chord branch)
   ch_dev/pirate   -> plain clone pointed at github remote (kms branch)
 
-Then, for each feature we want to implement, we make git worktrees for all 3
+Then, for each feature we want to implement, we make git worktrees for all 4
 repos. For example, if the feature is named 'ch_test', then:
 
   ch_test/        -> git worktree of ch_dev
+  ch_test/pipmake -> git worktree of ch_dev/pipmake
   ch_test/ksgpu   -> git worktree of ch_dev/ksgpu
   ch_test/pirate  -> git worktree of ch_dev/pirate
 
@@ -42,7 +45,6 @@ The grouping dir's extern/ holds source trees for some external software that ma
 be useful as a reference. For most tasks you won't need them. From a worktree it
 is a sibling, i.e. ../extern:
 
-  ../extern/pipmake           -> used in build system
   ../extern/chord-frb-sifter  -> real-time code "downstream" from the FRB search
 
 Network egress (HTTP/HTTPS) is filtered by an allowlisting proxy. A request to a

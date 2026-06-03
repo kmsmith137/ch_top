@@ -9,7 +9,12 @@
 # in ch_dev_helpers.py, or it will be silently missing from every venv.
 # (build_venv prints a warning for any manifest repo it does not build.)
 #
-# Order matters: list dependencies before dependents (ksgpu before pirate).
+# Order matters: list dependencies before dependents. pipmake -- the build
+# backend for ksgpu/pirate -- comes first, then ksgpu, then pirate.
+
+[pipmake]
+url    = "github:kmsmith137/pipmake"  # build backend for ksgpu/pirate (pure Python)
+branch = "main"
 
 [ksgpu]
 url    = "github:kmsmith137/ksgpu"    # uses your ~/.ssh/config 'github' alias
