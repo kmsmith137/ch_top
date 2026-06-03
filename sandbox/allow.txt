@@ -1,0 +1,40 @@
+# Allowlist: the ONLY host paths the sandboxed agent can see (default-deny).
+#
+# Anything not listed here is INVISIBLE inside the container -- so your other
+# files, other projects, and any unlisted secrets are simply not present (no
+# masking needed; this replaces the old deny.txt). Read by sbox-claude at every
+# launch -- edit freely; changes take effect on the next launch, for every
+# worktree in the group, with no re-render. (sbox-claude reads this copy from the
+# TOPLEVEL ch_dev and mounts it read-only, so the agent cannot edit it.)
+#
+# Format: "<mode> <path>" per line, mode = ro (read-only) or rw (read-write).
+# A leading ~ / $HOME expands to your home dir; $CH expands to the grouping dir
+# (parent of the toplevel). Globs expand. # comments and blank lines are ignored.
+# Non-existent paths are skipped.
+#
+# NOTE: the grouping dir $CH is ALWAYS mounted read-write (it holds the worktrees,
+# the shared .git stores, and the agent's per-group claude config), so you do not
+# need to list it here. THIS IS A BEST-GUESS LIST -- if a build/test fails with a
+# missing path, add it (run discovery later to make it exact).
+
+# --- System (read-only): the OS + system toolchain. Mostly REQUIRED -- the
+#     container can't run bash/python/claude without them. These are the shared,
+#     non-sensitive system, so read-only exposure is fine.
+ro /usr            # binaries, glibc loader, CUDA (/usr/local/cuda), NVIDIA libs, SSL libs
+ro /etc            # DNS (resolv.conf), TLS certs, passwd/group, ld.so cache, cuda alternatives
+ro /var            # the claude install lives here (/var/lib/containers/<you>/claude/...)
+ro /opt            # intel oneapi etc. (harmless if absent; drop if your build never uses /opt)
+
+# --- Toolchain under $HOME (read-only): conda + the claude launcher.
+ro ~/miniforge3    # conda base + envs (python, cupy, grpc, ...); the venv overlays this
+ro ~/.conda        # conda's per-user state (env list, etc.)
+ro ~/.condarc      # conda channels / config
+ro ~/.local        # ~/.local/bin/claude (the launcher) + direnv + pip --user tools
+
+# --- Agent essentials under $HOME (read-only).
+ro ~/.gitconfig    # commit identity (user.name / user.email) -- git won't commit without it
+ro ~/.bashrc       # sourced by the agent's bash at startup (conda activate, etc.)
+ro ~/.profile      # login-shell init
+
+# --- Extra read-write data dirs (add your own; e.g. a shared dataset to write back):
+# rw /data/chord/scratch

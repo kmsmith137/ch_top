@@ -189,10 +189,11 @@ seccomp tweak, no `nvidia-container-toolkit`; see Appendix C.
 - `dotfile_templates/` -- source templates for `.envrc` and `.claude/env.sh`
   (venv activation); `render_dotfiles` substitutes `{{WORKTREE}}`.
 - `sandbox/` -- editable policy lists `sbox-claude` reads at every launch (so edits
-  take effect immediately, for every worktree, with no re-render): `deny.txt`
-  (paths masked from the agent), `readwrite.txt` (extra writable paths),
-  `devices.txt` (device nodes; default: all GPUs). `sbox-claude` reads these from
-  the TOPLEVEL ch_dev, so edit them there. See Appendices C-E.
+  take effect immediately, for every worktree, with no re-render): `allow.txt`
+  (the default-deny filesystem allowlist -- `ro`/`rw <path>` per line; anything not
+  listed is absent in the container) and `devices.txt` (device nodes; default: all
+  GPUs). `sbox-claude` reads these from the TOPLEVEL ch_dev, so edit them there.
+  See Appendices C-E.
 
 ## Daily workflow
 
@@ -263,9 +264,10 @@ rebase, which git refuses mid-rebase. Use `git rebase --continue`/`--abort`
 directly. `git rebase --abort` is always safe: a rebase is fully undoable until
 it finishes, so it is safe to attempt one just to see the conflicts.
 
-**Pushing / fetching is done by you, outside the sandbox.** The container masks
-`~/.ssh`, `~/.git-credentials`, and `~/.netrc` and never passes in
-`SSH_AUTH_SOCK`, so the agent has no usable push credentials -- it commits locally
+**Pushing / fetching is done by you, outside the sandbox.** The filesystem
+allowlist doesn't include `~/.ssh`, `~/.git-credentials`, or `~/.netrc` (they are
+absent in the container), and `SSH_AUTH_SOCK` is never passed in, so the agent has
+no usable push credentials -- it commits locally
 only; you `git push` / `git fetch` from your own shell when ready. (Network egress
 itself is open inside the container -- Model B needs it for the Anthropic API; see
 Appendix D.)
@@ -283,24 +285,23 @@ the security boundary, so the agent does real work -- including GPU compute --
 with **zero permission prompts**, and escaping is not possible. The mount
 manifest IS the security model:
 
-- **Read-only base (no escalation)** -- every real top-level host dir is
-  bind-mounted at its real path `:ro`, recreating your exact environment (conda
-  env, system CUDA, the `claude` install, other worktrees). The single-id userns
-  caps every read at your account: host-root files (e.g. `/etc/shadow`) map to
-  `nobody` and are unreadable.
-- **Read-write (do work + commit)** -- the whole **grouping dir** in one mount:
-  the worktree, its siblings, the toplevel, and every repo's shared `.git`
-  (Appendix E). On top, the policy lists (`sandbox/*.txt`) and each `.git`'s
-  `config`+`hooks/` are re-pinned `:ro`, so the agent can't rewrite its own jail
-  or plant code that runs in your unsandboxed shell. Extra paths via
-  `sandbox/readwrite.txt`; files are owned by you on the host.
+- **Allowlist (default-deny)** -- the container mounts ONLY the paths in
+  `sandbox/allow.txt` (`ro`/`rw <path>`): the system dirs it needs (`/usr`, `/etc`,
+  `/var`, ...) plus your toolchain (`~/miniforge3`, `~/.local`, ...), all read-only.
+  Everything else -- your other projects, data, and unlisted secrets -- is simply
+  **absent**. The single-id userns also caps any read at your account (host-root
+  files like `/etc/shadow` map to `nobody`).
+- **Read-write (do work + commit)** -- the whole **grouping dir** is always mounted
+  rw in one go: the worktree, its siblings, the toplevel, and every repo's shared
+  `.git` (Appendix E). On top, the policy lists (`sandbox/*.txt`) and each `.git`'s
+  `config`+`hooks/` are re-pinned `:ro`, so the agent can't rewrite its own jail or
+  plant code that runs in your unsandboxed shell. Add extra writable paths with
+  `rw <path>` lines in `allow.txt`; files are owned by you on the host.
 - **Auth (per group)** -- `CLAUDE_CONFIG_DIR` points at the grouping dir, so the
   agent's `.claude.json`, OAuth token, and transcripts live in `~/ch/`, shared by
   every worktree in the group and separate from your personal `~/.claude` (which
-  is masked). Run `/login` once per grouping dir. See Appendix D.
-- **Masked secrets (deny)** -- each path in `sandbox/deny.txt` (`~/.ssh`,
-  `~/.config`, `~/.claude`, PyPI/AWS/GPG creds, ...) is shadowed by an empty,
-  unreadable node (a dir over a directory, a file over a file).
+  the allowlist omits, so it is absent). Run `/login` once per grouping dir. See
+  Appendix D.
 - **GPU (compute)** -- NVIDIA nodes via `--device` (`sandbox/devices.txt`) + host
   CUDA libs (RO) + default seccomp. No shim, no seccomp override (Appendix C).
 
@@ -412,10 +413,11 @@ For a trusted single-user dev box these are acceptable trades; know what they ar
 **Network egress is open.** Model B runs `claude` *inside* the container, so the
 container needs the Anthropic API -- `--network host`. The agent could therefore
 reach arbitrary hosts. It **cannot push or exfiltrate via your keys**: `~/.ssh`,
-`~/.git-credentials`, and `~/.netrc` are masked (`deny.txt`) and `SSH_AUTH_SOCK`
-is never passed in (the host agent sockets live in `/tmp`,`/run`, which are
-private tmpfs inside the container, so they are simply absent). Your **personal**
-Claude token is out of reach too: `~/.claude` is masked, and the agent
+`~/.git-credentials`, and `~/.netrc` are not in the allowlist (absent in the
+container) and `SSH_AUTH_SOCK` is never passed in (the host agent sockets live in
+`/tmp`,`/run`, which are private tmpfs inside the container, so they are simply
+absent). Your **personal** Claude token is out of reach too: `~/.claude` is not
+allowlisted, and the agent
 authenticates from its own per-group `CLAUDE_CONFIG_DIR` (`~/ch/.credentials.json`,
 a separate one-time `/login`). The agent *can* still read that group token and,
 with open egress, send it out -- but the damage is bounded by your subscription
@@ -440,9 +442,12 @@ history is not.
 namespace and your supplementary-group reads (`chord-dev`, ...). Fine on a trusted
 single-user box; not a defense against a kernel-exploit-grade adversary.
 
-**Secrets are masked, not deleted.** Each path in `deny.txt` is shadowed by an
-empty unreadable dir (for a directory) or file (for a file); the agent sees an
-empty node, not the contents. Masking hides contents, not existence.
+**Default-deny filesystem.** Only the paths in `sandbox/allow.txt` are mounted;
+everything else is simply absent in the container (not even an empty placeholder).
+Your secrets and unrelated files are invisible because they were never mounted --
+not because of a mask you have to remember to add. The flip side: it fails CLOSED,
+so a path the toolchain needs but you forgot to list shows up as a missing-file
+error -- add it to `allow.txt`.
 
 **The base image must track the host distro** (host `/usr` is overlaid); bump the
 `IMAGE=` line in `sbox-claude` on a host upgrade and re-verify GPU + a build.

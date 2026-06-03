@@ -10,12 +10,14 @@
 # cuda, and the direnv-activated venv all carry in automatically -- launch it
 # from an activated worktree shell). Extra args are passed through to claude.
 #
-# The editable policy lives in the toplevel ch_dev's sandbox/ dir:
-#   sandbox/deny.txt       paths masked from the agent (no read)
-#   sandbox/readwrite.txt  extra writable paths
-#   sandbox/devices.txt    device nodes (--device; default: all GPUs)
-# Edit those and re-launch -- they are read every launch. See README.md
-# "Sandbox and GPU" and podman-sandbox-design.md for the full model.
+# Filesystem access is an ALLOWLIST (default-deny): the container sees ONLY the
+# paths in the toplevel ch_dev's sandbox/ policy --
+#   sandbox/allow.txt    host paths the agent may see ("ro <path>" / "rw <path>")
+#   sandbox/devices.txt  device nodes (--device; default: all GPUs)
+# Everything else (your other files, projects, and secrets) is simply absent --
+# no masking needed. The grouping dir ($CH) is always read-write. Edit those and
+# re-launch -- they are read every launch. See README.md "Sandbox and GPU" and
+# podman-sandbox-design.md for the full model.
 set -euo pipefail
 shopt -s nullglob                      # unmatched globs vanish (devices, subdirs)
 
@@ -36,7 +38,7 @@ WT="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 [ -d "$WT/.git" ] && die "$WT is the toplevel (the unsandboxed management checkout). \
 Run sbox-claude from a feature worktree, or use plain 'claude' here."
 
-# --- locate the policy lists (in the TOPLEVEL ch_dev, shared by all worktrees) -
+# --- locate the policy (in the TOPLEVEL ch_dev, shared by all worktrees) --------
 # The toplevel = the ch_dev repo's main worktree = the parent of its git
 # common-dir (<toplevel>/.git); the grouping dir is one level above that.
 gcd="$(cd "$WT" && git rev-parse --git-common-dir 2>/dev/null)" \
@@ -46,95 +48,92 @@ TOPLEVEL="$(dirname "$gcd")"                           # the ch_dev checkout
 CH="$(dirname "$TOPLEVEL")"                            # grouping dir: toplevel + sibling
                                                       # worktrees + shared claude config
 LISTS="$TOPLEVEL/sandbox"
-DENY="$LISTS/deny.txt"; RW="$LISTS/readwrite.txt"; DEVS="$LISTS/devices.txt"
-# Fail CLOSED: never launch an agent if the secret-mask list is missing.
-[ -f "$DENY" ] || die "missing mask list $DENY -- refusing to launch (secrets would be exposed)"
+ALLOW="$LISTS/allow.txt"; DEVS="$LISTS/devices.txt"
+# Fail CLOSED: the allowlist defines everything the agent can see.
+[ -f "$ALLOW" ] || die "missing allowlist $ALLOW -- refusing to launch"
 
-# read_list FILE -> cleaned entries (drop #comments and blanks; expand a leading
-# ~ or $HOME and any globs). Missing file -> nothing. Used for all three lists.
+# expand_path TOKEN -> absolute paths (one per line): a leading ~/$HOME expands to
+# your home dir, $CH to the grouping dir; then globs/words expand.
+expand_path() {
+  local p="$1" g
+  case "$p" in
+    "~"|"~/"*)              p="$HOME${p#\~}" ;;
+    '$HOME'|'$HOME/'*)      p="$HOME${p#\$HOME}" ;;
+    '${HOME}'|'${HOME}/'*)  p="$HOME${p#'${HOME}'}" ;;
+    '$CH'|'$CH/'*)          p="$CH${p#\$CH}" ;;
+    '${CH}'|'${CH}/'*)      p="$CH${p#'${CH}'}" ;;
+  esac
+  for g in $p; do printf '%s\n' "$g"; done
+}
+
+# read_list FILE -> cleaned, expanded entries (drop #comments/blanks). For devices.
 read_list() {
-  local f="$1" line g
+  local f="$1" line
   [ -f "$f" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
-    line="${line%%#*}"                                # strip trailing comment
-    line="${line#"${line%%[![:space:]]*}"}"           # ltrim
-    line="${line%"${line##*[![:space:]]}"}"           # rtrim
+    line="${line%%#*}"
+    line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
     [ -z "$line" ] && continue
-    case "$line" in
-      "~"|"~/"*)                line="$HOME${line#\~}" ;;
-      '$HOME'|'$HOME/'*)        line="$HOME${line#\$HOME}" ;;
-      '${HOME}'|'${HOME}/'*)    line="$HOME${line#'${HOME}'}" ;;
-    esac
-    for g in $line; do printf '%s\n' "$g"; done       # word/glob expansion
+    expand_path "$line"
   done < "$f"
 }
 
-# --- empty, unreadable mask sources (goal 3): a dir for masking directories and
-# a file for masking files. Masking works by SHADOWING -- the bind replaces the
-# real secret with an empty one, so its contents are simply not mounted (uid 0 in
-# the container could read a chmod-000 node, but there is nothing behind it). A
-# dir-over-file (or file-over-dir) bind is rejected by the kernel, so we match.
-EMPTY_DIR="$(mktemp -d)"; chmod 000 "$EMPTY_DIR"
-EMPTY_FILE="$(mktemp)"; chmod 000 "$EMPTY_FILE"
-trap 'rmdir "$EMPTY_DIR" 2>/dev/null; rm -f "$EMPTY_FILE" 2>/dev/null; true' EXIT
-
 # --- assemble the podman invocation --------------------------------------------
 # --network host  : Model B runs claude inside, so it needs the Anthropic API
-#                   (egress is open; push creds are masked instead -- App. D).
+#                   (egress is open; push creds are simply not in the allowlist).
 # --ipc host + --ulimit memlock : CUDA pinned memory / RDMA.
 # --group-add keep-groups : preserve chord-dev/chord-users group reads.
 # IS_SANDBOX=1    : lets claude accept --dangerously-skip-permissions as uid 0
 #                   (single-id userns: container uid 0 == host you). See App. D.
 # CLAUDE_CONFIG_DIR=$CH : the agent's claude config/auth/transcripts live in the
-#                   grouping dir ($CH/.claude.json, $CH/.credentials.json,
-#                   $CH/projects/), NOT your personal ~/.claude (which is masked).
-#                   Auth is therefore per-group: '/login' once per grouping dir.
+#                   grouping dir; auth is per-group ('/login' once per grouping dir).
 # PATH / CONDA_PREFIX are INHERITED from your shell (venv prepended for safety).
+# Caches go to the tmpfs /tmp (home dirs are read-only or absent under the allowlist).
 a=( run --rm --network host --ipc host --ulimit memlock=-1:-1 --group-add keep-groups
     --tmpfs /tmp --tmpfs /run -w "$WT"
     -e HOME="$HOME" -e IS_SANDBOX=1 -e CLAUDE_CONFIG_DIR="$CH"
     -e CLAUDE_ENV_FILE="$WT/.claude/env.sh"
     -e VIRTUAL_ENV="$WT/.venv" -e CONDA_PREFIX="$CONDA_PREFIX"
-    -e PYTHONSAFEPATH=1 -e CUPY_CACHE_DIR=/tmp/cupy_cache
+    -e PYTHONSAFEPATH=1 -e CUPY_CACHE_DIR=/tmp/cupy_cache -e XDG_CACHE_HOME=/tmp/cache
     -e LD_LIBRARY_PATH="$CUDA/lib64"
     -e PATH="$WT/.venv/bin:$PATH" )
 if [ -t 0 ]; then a+=( -it ); fi
 
-# (goal 4) read-only base: every real top-level dir, skipping the virtual
-# filesystems and the /usr symlinks (/bin /lib /lib64 /sbin). The single-id uid
-# mapping caps every read at your account (host-root files appear as nobody).
-for d in /*; do
-  case "$d" in /proc|/sys|/dev|/run|/tmp) continue;; esac
-  [ -L "$d" ] && continue
-  [ -d "$d" ] && a+=( -v "$d:$d:ro" )
-done
+# (allowlist) mount ONLY the paths in allow.txt, each :ro or :rw. Anything not
+# listed is absent in the container -- your other files/projects/secrets simply
+# aren't there (default-deny). Missing sources are skipped.
+while IFS= read -r line || [ -n "$line" ]; do
+  line="${line%%#*}"
+  line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
+  [ -z "$line" ] && continue
+  mode="${line%%[[:space:]]*}"                         # first token: ro|rw
+  rest="${line#"$mode"}"; rest="${rest#"${rest%%[![:space:]]*}"}"   # the path
+  case "$mode" in ro|rw) ;; *) die "allow.txt: each line must start with 'ro' or 'rw': $line";; esac
+  [ -n "$rest" ] || die "allow.txt: missing path on line: $line"
+  while IFS= read -r p; do
+    [ -e "$p" ] && a+=( -v "$p:$p:$mode" )
+  done < <(expand_path "$rest")
+done < "$ALLOW"
 
-# (goal 5) device nodes from devices.txt (default: all /dev/nvidia*). Only
-# existing CHARACTER devices are passed (skips the /dev/nvidia-caps directory).
+# The grouping dir is ALWAYS read-write: it holds this worktree, its siblings, the
+# toplevel, every repo's shared .git store (so commits work), and the agent's
+# claude config (CLAUDE_CONFIG_DIR=$CH). Podman applies deeper mounts last.
+a+=( -v "$CH:$CH:rw" )
+
+# (goal 5) device nodes from devices.txt (default: all /dev/nvidia*). Only existing
+# CHARACTER devices are passed (skips the /dev/nvidia-caps directory).
 while IFS= read -r dev; do
   [ -c "$dev" ] && a+=( --device "$dev" )
 done < <(read_list "$DEVS")
 
-# (goal 2) read-write: the whole grouping dir in one mount -- this worktree, its
-# sibling worktrees, the toplevel, every repo's shared .git object store (so
-# commits work), and CLAUDE_CONFIG_DIR=$CH itself (so claude can write
-# .claude.json, refresh its token, and store transcripts). Plus any extra paths
-# from readwrite.txt. Podman applies deeper mounts last, so these win over the RO base.
-a+=( -v "$CH:$CH:rw" )
-while IFS= read -r p; do
-  [ -e "$p" ] && a+=( -v "$p:$p:rw" )
-done < <(read_list "$RW")
-
 # Keep the sandbox POLICY read-only even inside the RW grouping dir, so the agent
-# cannot rewrite its own deny/read-write/device lists to widen the sandbox on the
-# next launch.
+# cannot edit its own allowlist/devices to widen the sandbox on the next launch.
 [ -d "$LISTS" ] && a+=( -v "$LISTS:$LISTS:ro" )
 
-# (goal 2, commits) the shared .git object stores are already RW (under $CH), so
-# `git commit` works. Pin each repo's config file and hooks/ dir :ro on top --
-# they are settings/code that execute in YOUR unsandboxed shell. See README App. E.
-# (Defensive: if a store somehow sits outside $CH, RW it explicitly so commits
-# still work.)
+# (commits) the shared .git object stores are RW (under $CH), so `git commit`
+# works. Pin each repo's config file and hooks/ dir :ro -- they are settings/code
+# that execute in YOUR unsandboxed shell. See README.md App. E. (Defensive: if a
+# store somehow sits outside $CH, RW it explicitly so commits still work.)
 for repo in "$WT" "$WT"/*/; do
   [ -e "$repo/.git" ] || continue
   g="$(git -C "$repo" rev-parse --git-common-dir 2>/dev/null)" || continue
@@ -143,18 +142,10 @@ for repo in "$WT" "$WT"/*/; do
   a+=( -v "$g/config:$g/config:ro" -v "$g/hooks:$g/hooks:ro" )
 done
 
-# (goal 3) mask each existing secret path from deny.txt -- a directory with the
-# empty dir, a file with the empty file (deeper path, applied last by podman -> wins).
-while IFS= read -r p; do
-  if [ -d "$p" ]; then a+=( -v "$EMPTY_DIR:$p:ro" )
-  elif [ -e "$p" ]; then a+=( -v "$EMPTY_FILE:$p:ro" ); fi
-done < <(read_list "$DENY")
-
 # Make sure the base image is present (one-time pull on first use).
 podman image exists "$IMAGE" >/dev/null 2>&1 || podman pull "$IMAGE"
 
-# Run claude in the container. Not exec'd, so the EXIT trap can clean up the mask
-# sources; claude's exit status is propagated.
+# Run claude in the container; propagate its exit status.
 rc=0
 podman "${a[@]}" "$IMAGE" claude --dangerously-skip-permissions "$@" || rc=$?
 exit "$rc"
