@@ -289,7 +289,11 @@ def branch_relations(workdir=ROOT):
     worktree's own branch. Returns formatted strings like
     'dev/pirate is 2 commits ahead of top/pirate (kms branch)'; the container repo
     (dir name 'top' != repo name) instead reads
-    'dev/ is up-to-date with top/ (repo ch_top, main branch)'.
+    'dev/ is 1 commit behind top/ (repo ch_top, main branch)'.
+
+    Lines that are merely up-to-date are dropped as noise; if that would empty a
+    whole worktree's group, one summary line is kept so the worktree still shows:
+    'dev/* is up-to-date with top/* (all repos)'.
 
     Lines are grouped by feature branch (all of dev's repos, then all of
     test's, ...), each group in repo order (top, ksgpu, pirate), with an
@@ -303,7 +307,7 @@ def branch_relations(workdir=ROOT):
     top_ws = _parse_worktrees(repos[0][1])[0][0].name if repos else "top"
     # Collect lines per feature branch, preserving first-seen branch order and
     # repo order (repos are iterated in workspace_repos order).
-    by_branch = {}  # branch -> [line, ...]
+    by_branch = {}  # branch -> [(uptodate: bool, line: str), ...]
     for _, path in repos:
         wts = _parse_worktrees(path)
         if not wts or wts[0][1] is None:
@@ -324,13 +328,18 @@ def branch_relations(workdir=ROOT):
                 line = f"{branch}/{repo} is {rel} {top_ws}/{repo} ({base} branch)"
             else:
                 line = f"{branch}/ is {rel} {top_ws}/ (repo {name}, {base} branch)"
-            by_branch.setdefault(branch, []).append(line)
-    # Flatten, with a blank line between branch groups.
+            by_branch.setdefault(branch, []).append((ab == (0, 0), line))
+    # Flatten, a blank line between branch groups. Within each group drop the
+    # merely-"up-to-date" lines (noise); if that empties the whole group, keep one
+    # summary line so the worktree is still listed (don't silently hide it).
     lines = []
-    for group in by_branch.values():
+    for branch, entries in by_branch.items():
+        shown = [line for uptodate, line in entries if not uptodate]
+        if not shown:
+            shown = [f"{branch}/* is up-to-date with {top_ws}/* (all repos)"]
         if lines:
             lines.append("")
-        lines.extend(group)
+        lines.extend(shown)
     return lines
 
 

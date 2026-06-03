@@ -181,7 +181,8 @@ seccomp tweak, no `nvidia-container-toolkit`; see Appendix C.
   across all 4 repos in the current workspace, under per-repo headers (extra args
   pass through to git). `git-status` also prints how each worktree branch
   relates to its integration branch, e.g. `dev/pirate is 2 commits ahead of
-  top/pirate (kms branch)`.
+  top/pirate (kms branch)`; repos already up-to-date are omitted (a fully
+  up-to-date worktree collapses to a single line).
 - `git-rebase-down [--dry-run]` -- in a WORKTREE: rebase this feature's branch
   onto each repo's integration branch (sync down). `git-merge-up [--dry-run]
   [--no-ff]` -- also in the WORKTREE: fast-forward this feature onto each repo's
