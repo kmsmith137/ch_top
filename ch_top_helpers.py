@@ -4,6 +4,13 @@ ch_top is a personal multi-repo workspace. The inner repos (ksgpu, pirate, ...)
 are plain clones listed in git_repositories.toml; feature workspaces are git
 worktrees. See README.md for the design.
 
+Entry-point scripts (init-*, git-*, delete-worktree) reach this module via a
+one-line `sys.path.insert(0, <script dir>)` placed before they import it. That
+line is required because the worktree env sets PYTHONSAFEPATH=1 (the cwd-shadowing
+guard; see README.md "cwd shadowing"), which stops Python from putting a script's
+own directory on sys.path -- so once direnv has run, a bare `import ch_top_helpers`
+would otherwise fail with ModuleNotFoundError.
+
 NOTE: nothing here names or activates a conda env. Every script assumes the
 correct conda toolchain env is already active in your shell (you load it in
 ~/.bashrc). Venvs are seeded from whatever interpreter is active.

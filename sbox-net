@@ -157,6 +157,27 @@ def pipe(a, b):
                 pass
 
 
+def open_upstream(client, host, port):
+    """Apply the allow/deny decision, then connect to (host, port).
+
+    On success returns the connected upstream socket, with the client's accept
+    timeout cleared (ready to tunnel). On a blocked/denied host or a failed
+    connect it has already written the 403/502 to `client` and returns None --
+    the caller then just returns.
+    """
+    d = decide(host)
+    if d != "allow":
+        send_block(client, host, d)
+        return None
+    try:
+        up = socket.create_connection((host, port), timeout=15)
+    except OSError:
+        client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
+        return None
+    client.settimeout(None)
+    return up
+
+
 def handle(client):
     up = None
     try:
@@ -174,34 +195,20 @@ def handle(client):
             host, _, p = target.rpartition(":")
             host = (host or target).strip("[]")
             port = int(p) if p.isdigit() else 443
-            data = drain_until(client, data, b"\r\n\r\n")     # consume CONNECT headers
-            d = decide(host)
-            if d != "allow":
-                send_block(client, host, d)
+            drain_until(client, data, b"\r\n\r\n")     # consume + discard CONNECT headers
+            up = open_upstream(client, host, port)
+            if up is None:
                 return
-            try:
-                up = socket.create_connection((host, port), timeout=15)
-            except OSError:
-                client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
-                return
-            client.settimeout(None)
             client.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
             pipe(client, up)
 
         elif "://" in target:                          # plain-HTTP forward proxy request
             u = urlsplit(target)
             host, port = (u.hostname or ""), (u.port or 80)
-            d = decide(host)
-            if d != "allow":
-                send_block(client, host, d)
-                return
-            try:
-                up = socket.create_connection((host, port), timeout=15)
-            except OSError:
-                client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
+            up = open_upstream(client, host, port)
+            if up is None:
                 return
             path = (u.path or "/") + (("?" + u.query) if u.query else "")
-            client.settimeout(None)
             up.sendall(f"{method} {path} HTTP/1.1\r\n".encode() + rest)   # origin-form line
             pipe(client, up)
 

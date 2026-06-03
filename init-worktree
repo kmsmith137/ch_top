@@ -21,10 +21,7 @@ import os
 import sys
 from pathlib import Path
 
-# Put this script's own directory on sys.path before the local imports below.
-# The worktree .envrc exports PYTHONSAFEPATH=1 (cwd-shadowing guard), which drops
-# the script dir from sys.path -- so once direnv has run in top, a bare
-# `import ch_top_helpers` would fail with ModuleNotFoundError. See README.md.
+# Make ch_top_helpers importable under PYTHONSAFEPATH=1 (see its module docstring).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import ch_top_helpers as wl
