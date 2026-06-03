@@ -78,13 +78,13 @@ def main() -> None:
     wl.info(f"next: 'direnv allow {worktree}', then 'cd {worktree} && ./sbox-claude' "
             f"to start the sandboxed agent (or run plain 'claude' for an "
             f"unsandboxed shell there)")
-    # The sandbox uses CLAUDE_CONFIG_DIR=<grouping dir>, so auth is per-group and
-    # separate from your personal ~/.claude. The first run in a new grouping dir
-    # has no token yet -- point that out.
-    ch = wl.ROOT.parent
-    if not (ch / ".credentials.json").exists():
+    # The sandbox uses CLAUDE_CONFIG_DIR=<grouping dir>/claude, so auth is
+    # per-group and separate from your personal ~/.claude. The first run in a new
+    # grouping dir has no token yet -- point that out.
+    cfg = wl.ROOT.parent / "claude"
+    if not (cfg / ".credentials.json").exists():
         wl.info(f"note: the sandbox authenticates per grouping dir "
-                f"(CLAUDE_CONFIG_DIR={ch}); there is no {ch}/.credentials.json yet, "
+                f"(CLAUDE_CONFIG_DIR={cfg}); there is no {cfg}/.credentials.json yet, "
                 f"so run '/login' inside the agent once to authenticate this group")
 
 

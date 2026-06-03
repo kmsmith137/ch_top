@@ -52,6 +52,8 @@ ALLOW="$LISTS/allow.txt"; DEVS="$LISTS/devices.txt"
 # Fail CLOSED: the allowlist defines everything the agent can see.
 [ -f "$ALLOW" ] || die "missing allowlist $ALLOW -- refusing to launch"
 
+mkdir -p "$CH/claude"   # the agent's per-group claude config dir (CLAUDE_CONFIG_DIR)
+
 # --- egress proxy (network allowlist) ------------------------------------------
 # Route the agent's HTTP/HTTPS through sbox-net's per-group filtering proxy
 # (started on first use, shared by every worktree in the group). A domain that is
@@ -101,13 +103,14 @@ read_list() {
 # --group-add keep-groups : preserve chord-dev/chord-users group reads.
 # IS_SANDBOX=1    : lets claude accept --dangerously-skip-permissions as uid 0
 #                   (single-id userns: container uid 0 == host you). See App. D.
-# CLAUDE_CONFIG_DIR=$CH : the agent's claude config/auth/transcripts live in the
-#                   grouping dir; auth is per-group ('/login' once per grouping dir).
+# CLAUDE_CONFIG_DIR=$CH/claude : the agent's claude config/auth/transcripts live in
+#                   <grouping dir>/claude (NOT your personal ~/.claude); auth is
+#                   per-group -- '/login' once per grouping dir.
 # PATH / CONDA_PREFIX are INHERITED from your shell (venv prepended for safety).
 # Caches go to the tmpfs /tmp (home dirs are read-only or absent under the allowlist).
 a=( run --rm --network host --ipc host --ulimit memlock=-1:-1 --group-add keep-groups
     --tmpfs /tmp --tmpfs /run -w "$WT"
-    -e HOME="$HOME" -e IS_SANDBOX=1 -e CLAUDE_CONFIG_DIR="$CH"
+    -e HOME="$HOME" -e IS_SANDBOX=1 -e CLAUDE_CONFIG_DIR="$CH/claude"
     -e CLAUDE_ENV_FILE="$WT/.claude/env.sh"
     -e VIRTUAL_ENV="$WT/.venv" -e CONDA_PREFIX="$CONDA_PREFIX"
     -e PYTHONSAFEPATH=1 -e CUPY_CACHE_DIR=/tmp/cupy_cache -e XDG_CACHE_HOME=/tmp/cache
@@ -134,7 +137,7 @@ done < "$ALLOW"
 
 # The grouping dir is ALWAYS read-write: it holds this worktree, its siblings, the
 # toplevel, every repo's shared .git store (so commits work), and the agent's
-# claude config (CLAUDE_CONFIG_DIR=$CH). Podman applies deeper mounts last.
+# claude config (CLAUDE_CONFIG_DIR=$CH/claude). Podman applies deeper mounts last.
 a+=( -v "$CH:$CH:rw" )
 
 # (goal 5) device nodes from devices.txt (default: all /dev/nvidia*). Only existing

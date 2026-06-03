@@ -58,8 +58,9 @@ Worktree (named `ch_test` for concreteness):
   ~/ch/ch_test/ksgpu     -> git worktree pointed at ~/ch/ch_dev/ksgpu
   ~/ch/ch_test/pirate    -> git worktree pointed at ~/ch/ch_dev/pirate
 ```
-Plus, in the grouping dir, the agent's shared per-group Claude config:
-`~/ch/.claude.json`, `~/ch/.credentials.json`, `~/ch/projects/`. We don't use git
+Plus, in the grouping dir, the agent's shared per-group Claude config under a
+`claude/` subdir: `~/ch/claude/.claude.json`, `~/ch/claude/.credentials.json`,
+`~/ch/claude/projects/`. We don't use git
 submodules or git subtrees.
 
 ## Quick start
@@ -304,9 +305,10 @@ manifest IS the security model:
   `config`+`hooks/` are re-pinned `:ro`, so the agent can't rewrite its own jail or
   plant code that runs in your unsandboxed shell. Add extra writable paths with
   `rw <path>` lines in `allow.txt`; files are owned by you on the host.
-- **Auth (per group)** -- `CLAUDE_CONFIG_DIR` points at the grouping dir, so the
-  agent's `.claude.json`, OAuth token, and transcripts live in `~/ch/`, shared by
-  every worktree in the group and separate from your personal `~/.claude` (which
+- **Auth (per group)** -- `CLAUDE_CONFIG_DIR` points at `<grouping dir>/claude`, so
+  the agent's `.claude.json`, OAuth token, and transcripts live in `~/ch/claude/`,
+  shared by every worktree in the group and separate from your personal `~/.claude`
+  (which
   the allowlist omits, so it is absent). Run `/login` once per grouping dir. See
   Appendix D.
 - **GPU (compute)** -- NVIDIA nodes via `--device` (`sandbox/devices.txt`) + host
@@ -464,7 +466,7 @@ container) and `SSH_AUTH_SOCK` is never passed in (the host agent sockets live i
 `/tmp`,`/run`, which are private tmpfs inside the container, so they are simply
 absent). Your **personal** Claude token is out of reach too: `~/.claude` is not
 allowlisted, and the agent
-authenticates from its own per-group `CLAUDE_CONFIG_DIR` (`~/ch/.credentials.json`,
+authenticates from its own per-group `CLAUDE_CONFIG_DIR` (`~/ch/claude/.credentials.json`,
 a separate one-time `/login`). The agent *can* still read that group token and,
 via an allowlisted domain that accepts content, send it out -- but the damage is bounded by your subscription
 scope (rate limits, not metered $), and you can revoke/re-login the group token

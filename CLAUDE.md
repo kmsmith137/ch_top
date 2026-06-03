@@ -21,8 +21,9 @@ for all 3 repos. For example, if the feature is named 'ch_test', then:
   ~/ch/ch_test/ksgpu     -> git worktree pointed at ~/ch/ch_dev/ksgpu
   ~/ch/ch_test/pirate    -> git worktree pointed at ~/ch/ch_dev/pirate
 
-The grouping dir (~/ch) is also the sandboxed agent's Claude config home
-(CLAUDE_CONFIG_DIR): ~/ch/.claude.json, ~/ch/.credentials.json, ~/ch/projects/.
+The grouping dir holds the sandboxed agent's Claude config home in a `claude`
+subdir (CLAUDE_CONFIG_DIR=~/ch/claude): ~/ch/claude/.claude.json,
+~/ch/claude/.credentials.json, ~/ch/claude/projects/.
 
 The first thing you should do on startup is figure out whether you are
 in a worktree. (Toplevel and worktrees are siblings in the grouping dir;
