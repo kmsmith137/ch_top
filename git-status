@@ -10,7 +10,7 @@ are passed through to git, e.g. `git-status -s` or `git-status -sb`.
 
 Then prints, for each repo, how the feature-worktree branch relates to that
 repo's integration branch (the one checked out in the main worktree), e.g.
-'pirate/dev is 2 commits ahead of pirate/kms'. Run from the toplevel top
+'dev/pirate is 2 commits ahead of top/pirate (kms branch)'. Run from the toplevel top
 this covers every feature worktree; run from a feature worktree it covers only
 that worktree's own branch.
 

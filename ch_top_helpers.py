@@ -130,13 +130,20 @@ def run_git_each(specs, *, dry_run=False):
 def run_git_all(git_args, workdir=ROOT) -> int:
     """Run `git <git_args>` in each workspace repo, under a per-repo header.
 
-    Headers read `<workspace>/<repo>`, e.g. `dev/pirate` -- the workspace dir
-    this is run from, and the repo identity (top / ksgpu / pirate). Returns
-    the worst (max) git exit code.
+    Headers read `<workspace>/<repo>`, e.g. `dev/pirate` -- the workspace dir this
+    is run from, and the repo's checkout-dir name. The container repo is the lone
+    exception: its dir name ('top') is not its repo name, so its header names the
+    repo explicitly, `top/ (repo ch_top)`. Returns the worst (max) git exit code.
     """
     ws = Path(workdir).resolve().name
-    specs = [(f"{ws}/{repo}", path, git_args)
-             for repo, path, _integ, _cur in repo_branch_info(workdir)]
+    specs = []
+    for repo, path, _integ, _cur in repo_branch_info(workdir):
+        name = repo_name(path)
+        # Plain `ws/repo` when the dir name already is the repo name (pipmake,
+        # ksgpu, pirate); name the repo explicitly only when they differ (the
+        # container repo ch_top lives in dir 'top'/'<feature>').
+        label = f"{ws}/{repo}" if name == repo else f"{ws}/ (repo {name})"
+        specs.append((label, path, git_args))
     worst, _ = run_git_each(specs)
     return worst
 
@@ -210,6 +217,24 @@ def repo_main_path(repo_path):
     return wts[0][0] if wts else Path(repo_path).resolve()
 
 
+def repo_name(repo_path):
+    """The repository's upstream name -- the basename of its 'origin' remote URL
+    (e.g. 'ch_top', 'ksgpu'), falling back to the main-worktree dirname if there
+    is no origin. A repo's checkout DIR can differ from its name (the container
+    repo ch_top is cloned into the dir 'top'), so this is the identity we show."""
+    url = subprocess.run(
+        ["git", "-C", str(repo_path), "remote", "get-url", "origin"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    if url:
+        base = url.rstrip("/").rsplit("/", 1)[-1]
+        if base.endswith(".git"):
+            base = base[:-4]
+        if base:
+            return base
+    return repo_main_path(repo_path).name
+
+
 def _parse_worktrees(repo_path):
     """[(worktree_path: Path, branch: str|None)] for repo_path, main worktree first.
 
@@ -262,8 +287,9 @@ def branch_relations(workdir=ROOT):
     and Y = a feature-worktree branch. Run from the toplevel top, covers every
     feature worktree of every repo; run from a feature worktree, only that
     worktree's own branch. Returns formatted strings like
-    'dev/pirate is 2 commits ahead of top/pirate (kms branch)' --
-    '<branch>/<repo>' vs '<toplevel-workspace>/<repo> (<integration-branch> branch)'.
+    'dev/pirate is 2 commits ahead of top/pirate (kms branch)'; the container repo
+    (dir name 'top' != repo name) instead reads
+    'dev/ is up-to-date with top/ (repo ch_top, main branch)'.
 
     Lines are grouped by feature branch (all of dev's repos, then all of
     test's, ...), each group in repo order (top, ksgpu, pirate), with an
@@ -283,7 +309,8 @@ def branch_relations(workdir=ROOT):
         if not wts or wts[0][1] is None:
             continue  # repo with a detached main worktree -- nothing to compare to
         main_path, base = wts[0]
-        repo = main_path.name             # repo identity: top / ksgpu / pirate
+        repo = main_path.name             # checkout-dir name: top / pipmake / ksgpu / pirate
+        name = repo_name(main_path)       # upstream repo name: ch_top / pipmake / ...
         if toplevel:
             targets = [(p, b) for p, b in wts[1:] if b is not None]
         else:
@@ -291,8 +318,13 @@ def branch_relations(workdir=ROOT):
         for _wt_path, branch in targets:
             ab = _ahead_behind(path, base, branch)
             rel = _relation_phrase(*ab) if ab else "cannot be compared to"
-            by_branch.setdefault(branch, []).append(
-                f"{branch}/{repo} is {rel} {top_ws}/{repo} ({base} branch)")
+            # Same rule as run_git_all's headers: only the container repo, whose
+            # dir name is not its repo name, gets the explicit '(repo <name>)' form.
+            if name == repo:
+                line = f"{branch}/{repo} is {rel} {top_ws}/{repo} ({base} branch)"
+            else:
+                line = f"{branch}/ is {rel} {top_ws}/ (repo {name}, {base} branch)"
+            by_branch.setdefault(branch, []).append(line)
     # Flatten, with a blank line between branch groups.
     lines = []
     for group in by_branch.values():
