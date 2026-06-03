@@ -45,7 +45,22 @@ is a sibling, i.e. ../extern:
   ../extern/pipmake           -> used in build system
   ../extern/chord-frb-sifter  -> real-time code "downstream" from the FRB search
 
+Network egress (HTTP/HTTPS) is filtered by an allowlisting proxy. A request to a
+domain that is not on the allowlist fails -- you will see a proxy "403" / "CONNECT
+tunnel failed" error, or a body beginning 'sbox-net: egress to ... is not on the
+allowlist', naming the domain. This is deliberate (a guardrail against prompt
+injection and data exfiltration), not a bug to route around. When you hit a block,
+the ONLY acceptable response is to surface it: tell me the exact domain and why
+you need it (what you were doing, the URL or command), and let me decide. I
+approve a domain on the host with `sbox-net allow <domain>`, after which you can
+retry. You cannot approve it yourself -- the allowlist is read-only to you.
+
 CRITICAL: things not to do:
    - Do not git commit unless explicitly asked.
    - NEVER merge/rebase between branches (I'll do this by running the git-* scripts).
    - NEVER pull/push to the github remote (I'll do this by hand).
+   - NEVER bypass or evade the egress proxy. If a domain is blocked, ask me and
+     explain why -- do NOT switch to a different mirror/domain/IP to dodge the
+     allowlist, unset or rewrite HTTP(S)_PROXY, open raw sockets, or reach for
+     another tool to get around it. Quietly working around a block is never
+     acceptable, even if the alternative looks harmless.
