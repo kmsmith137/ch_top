@@ -1,0 +1,370 @@
+#!/usr/bin/env python3
+"""sbox-net -- egress filtering proxy + approval CLI for the ch_dev agent sandbox.
+
+The sandboxed agents (sbox-claude) send their HTTP/HTTPS traffic through this
+per-grouping-dir proxy via HTTPS_PROXY. A domain is allowed only if it (or a
+parent domain) is on the git-tracked allowlist (sandbox/net-allow.txt); domains
+on the denylist (sandbox/net-deny.txt) are blocked silently (a remembered
+"deny"); anything else is blocked and logged as "needs approval".
+
+Approval flow (Design A): the agent's request to an unlisted domain fails, the
+agent reports the domain to you, and you run:
+
+    sbox-net allow <domain>      # appends to net-allow.txt; the agent then retries
+
+HTTPS is filtered by the CONNECT host (the SNI/hostname) -- no MITM, no cert.
+There is ONE proxy per grouping dir, shared by all its worktrees, so an approval
+applies to every agent in the group at once. sbox-claude starts the proxy on
+first use. See README.md "Egress proxy".
+
+Commands:
+    sbox-net start | stop | status | url      # proxy lifecycle ('start' is idempotent)
+    sbox-net allow <domain>...                # add to the allowlist (commit yourself)
+    sbox-net deny  <domain>...                # add to the denylist (remembered)
+    sbox-net log                              # show blocked / needs-approval domains
+    sbox-net proxy                            # (internal) run the proxy in the foreground
+"""
+import argparse
+import hashlib
+import os
+import select
+import signal
+import socket
+import subprocess
+import sys
+import threading
+import time
+from urllib.parse import urlsplit
+
+
+def die(msg):
+    print(f"sbox-net: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def locate():
+    """Resolve the toplevel ch_dev, grouping dir, policy files, port, runtime dir."""
+    here = os.path.dirname(os.path.realpath(__file__))
+    r = subprocess.run(["git", "-C", here, "rev-parse", "--git-common-dir"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        die("must live inside the ch_dev repo (could not find its .git)")
+    gitdir = os.path.realpath(os.path.join(here, r.stdout.strip()))   # <toplevel>/.git
+    toplevel = os.path.dirname(gitdir)
+    ch = os.path.dirname(toplevel)                                    # grouping dir
+    sandbox = os.path.join(toplevel, "sandbox")
+    h = hashlib.sha256(ch.encode()).hexdigest()
+    port = 18000 + int(h, 16) % 2000                  # deterministic per grouping dir
+    runtime = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/sbox-net-{os.getuid()}",
+                           "sbox-net", h[:12])
+    return {
+        "toplevel": toplevel, "ch": ch, "sandbox": sandbox, "port": port, "runtime": runtime,
+        "allow": os.path.join(sandbox, "net-allow.txt"),
+        "deny": os.path.join(sandbox, "net-deny.txt"),
+        "pidfile": os.path.join(runtime, "proxy.pid"),
+        "logfile": os.path.join(runtime, "proxy.log"),
+    }
+
+
+L = locate()
+
+
+# --------------------------------------------------------------------------- #
+# domain matching                                                             #
+# --------------------------------------------------------------------------- #
+def load_list(path):
+    out = []
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.split("#", 1)[0].strip().lower()
+                if line:
+                    out.append(line)
+    except FileNotFoundError:
+        pass
+    return out
+
+
+def host_matches(host, entry):
+    """An entry matches its own domain AND any subdomain. "*.foo.com" == "foo.com"."""
+    host = host.lower().rstrip(".")
+    entry = entry.lstrip("*").lstrip(".").rstrip(".")
+    return bool(entry) and (host == entry or host.endswith("." + entry))
+
+
+def decide(host):
+    if any(host_matches(host, e) for e in load_list(L["deny"])):
+        return "deny"
+    if any(host_matches(host, e) for e in load_list(L["allow"])):
+        return "allow"
+    return "block"
+
+
+# --------------------------------------------------------------------------- #
+# the proxy                                                                   #
+# --------------------------------------------------------------------------- #
+def logline(msg):
+    try:
+        with open(L["logfile"], "a") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
+    except OSError:
+        pass
+
+
+def block_body(host, d):
+    if d == "deny":
+        return f'sbox-net: egress to "{host}" is denied (listed in net-deny.txt).\n'.encode()
+    return (f'sbox-net: egress to "{host}" is not on the allowlist.\n'
+            f'Approve it on the host with:  sbox-net allow {host}\n'
+            f'(or block it for good with:   sbox-net deny {host})\n').encode()
+
+
+def send_block(client, host, d):
+    logline(("DENIED   " + host) if d == "deny"
+            else (f"BLOCKED  {host}   -> approve: sbox-net allow {host}"))
+    body = block_body(host, d)
+    client.sendall(b"HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\n"
+                   b"Connection: close\r\n" + f"Content-Length: {len(body)}\r\n\r\n".encode() + body)
+
+
+def drain_until(sock, data, marker, cap=65536):
+    while marker not in data and len(data) < cap:
+        chunk = sock.recv(4096)
+        if not chunk:
+            break
+        data += chunk
+    return data
+
+
+def pipe(a, b):
+    """Bidirectionally copy between two sockets until either side closes."""
+    socks = [a, b]
+    try:
+        while True:
+            r, _, _ = select.select(socks, [], [])
+            for s in r:
+                data = s.recv(65536)
+                if not data:
+                    return
+                (b if s is a else a).sendall(data)
+    except OSError:
+        pass
+    finally:
+        for s in (a, b):
+            try:
+                s.close()
+            except OSError:
+                pass
+
+
+def handle(client):
+    up = None
+    try:
+        client.settimeout(30)
+        data = drain_until(client, b"", b"\r\n")
+        if not data:
+            return
+        first, _, rest = data.partition(b"\r\n")
+        parts = first.decode("latin1", "replace").split()
+        if len(parts) < 2:
+            return
+        method, target = parts[0].upper(), parts[1]
+
+        if method == "CONNECT":                       # HTTPS tunnel
+            host, _, p = target.rpartition(":")
+            host = (host or target).strip("[]")
+            port = int(p) if p.isdigit() else 443
+            data = drain_until(client, data, b"\r\n\r\n")     # consume CONNECT headers
+            d = decide(host)
+            if d != "allow":
+                send_block(client, host, d)
+                return
+            try:
+                up = socket.create_connection((host, port), timeout=15)
+            except OSError:
+                client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
+                return
+            client.settimeout(None)
+            client.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+            pipe(client, up)
+
+        elif "://" in target:                          # plain-HTTP forward proxy request
+            u = urlsplit(target)
+            host, port = (u.hostname or ""), (u.port or 80)
+            d = decide(host)
+            if d != "allow":
+                send_block(client, host, d)
+                return
+            try:
+                up = socket.create_connection((host, port), timeout=15)
+            except OSError:
+                client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
+                return
+            path = (u.path or "/") + (("?" + u.query) if u.query else "")
+            client.settimeout(None)
+            up.sendall(f"{method} {path} HTTP/1.1\r\n".encode() + rest)   # origin-form line
+            pipe(client, up)
+
+        else:
+            client.sendall(b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n")
+    except (OSError, ValueError):
+        pass
+    finally:
+        for s in (client, up):
+            if s is not None:
+                try:
+                    s.close()
+                except OSError:
+                    pass
+
+
+def cmd_proxy(_args):
+    os.makedirs(L["runtime"], exist_ok=True)
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        srv.bind(("127.0.0.1", L["port"]))
+    except OSError:
+        die(f"cannot bind 127.0.0.1:{L['port']} (a proxy may already be running)")
+    srv.listen(128)
+    with open(L["pidfile"], "w") as f:
+        f.write(str(os.getpid()))
+    if not os.path.exists(L["allow"]):
+        logline(f"WARNING  no allowlist at {L['allow']} -- ALL egress will be blocked")
+    logline(f"--- proxy up on 127.0.0.1:{L['port']}  (allow={L['allow']}) ---")
+
+    def cleanup(*_):
+        try:
+            os.unlink(L["pidfile"])
+        except OSError:
+            pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, cleanup)
+    signal.signal(signal.SIGINT, cleanup)
+    while True:
+        try:
+            client, _ = srv.accept()
+        except OSError:
+            continue
+        threading.Thread(target=handle, args=(client,), daemon=True).start()
+
+
+# --------------------------------------------------------------------------- #
+# lifecycle + CLI                                                             #
+# --------------------------------------------------------------------------- #
+def running_pid():
+    try:
+        with open(L["pidfile"]) as f:
+            pid = int(f.read().strip())
+        os.kill(pid, 0)
+        return pid
+    except (OSError, ValueError):
+        return None
+
+
+def port_open():
+    try:
+        with socket.create_connection(("127.0.0.1", L["port"]), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+def cmd_start(_args):
+    if running_pid():
+        return                                  # already running -> quiet
+    os.makedirs(L["runtime"], exist_ok=True)
+    logf = open(L["logfile"], "a")
+    subprocess.Popen([sys.executable, os.path.realpath(__file__), "proxy"],
+                     stdout=logf, stderr=logf, start_new_session=True, close_fds=True)
+    for _ in range(50):
+        if running_pid() and port_open():
+            print(f"sbox-net: started egress proxy on http://127.0.0.1:{L['port']} "
+                  f"(approve blocked domains with 'sbox-net allow <domain>'; "
+                  f"log: {L['logfile']})")
+            return
+        time.sleep(0.1)
+    die(f"egress proxy failed to start -- see {L['logfile']}")
+
+
+def cmd_stop(_args):
+    pid = running_pid()
+    if not pid:
+        print("sbox-net: not running")
+        return
+    os.kill(pid, signal.SIGTERM)
+    print(f"sbox-net: stopped (pid {pid})")
+
+
+def cmd_status(_args):
+    pid = running_pid()
+    print(f"proxy: {'running (pid ' + str(pid) + ')' if pid else 'stopped'}   "
+          f"http://127.0.0.1:{L['port']}")
+    print(f"allow: {L['allow']}  ({len(load_list(L['allow']))} domains)")
+    print(f"deny:  {L['deny']}  ({len(load_list(L['deny']))} domains)")
+    print(f"log:   {L['logfile']}")
+
+
+def cmd_url(_args):
+    print(f"http://127.0.0.1:{L['port']}")
+
+
+def add_to_list(path, domains, label):
+    existing = set(load_list(path))
+    add = []
+    for d in domains:
+        d = d.strip().lower()
+        if d and d not in existing and d not in add:
+            add.append(d)
+    if not add:
+        print("sbox-net: nothing added (already listed)")
+        return
+    need_nl = False
+    try:
+        if os.path.getsize(path) > 0:
+            with open(path, "rb") as f:
+                f.seek(-1, os.SEEK_END)
+                need_nl = f.read(1) != b"\n"
+    except OSError:
+        pass
+    with open(path, "a") as f:
+        if need_nl:
+            f.write("\n")
+        for d in add:
+            f.write(d + "\n")
+    print(f"sbox-net: {label}: {', '.join(add)}")
+    print(f"          ({path} -- effective on the agent's next request; commit it when ready)")
+
+
+def cmd_allow(args):
+    add_to_list(L["allow"], args.domains, "allowed")
+
+
+def cmd_deny(args):
+    add_to_list(L["deny"], args.domains, "denied")
+
+
+def cmd_log(_args):
+    try:
+        with open(L["logfile"]) as f:
+            sys.stdout.write(f.read())
+    except FileNotFoundError:
+        print("sbox-net: no log yet (proxy hasn't blocked anything)")
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="sbox-net", description="egress proxy + approval CLI")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    for name in ("start", "stop", "status", "url", "log", "proxy"):
+        sub.add_parser(name)
+    for name in ("allow", "deny"):
+        sp = sub.add_parser(name)
+        sp.add_argument("domains", nargs="+")
+    args = ap.parse_args()
+    {"start": cmd_start, "stop": cmd_stop, "status": cmd_status, "url": cmd_url,
+     "log": cmd_log, "proxy": cmd_proxy, "allow": cmd_allow, "deny": cmd_deny}[args.cmd](args)
+
+
+if __name__ == "__main__":
+    main()

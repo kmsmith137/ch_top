@@ -52,6 +52,22 @@ ALLOW="$LISTS/allow.txt"; DEVS="$LISTS/devices.txt"
 # Fail CLOSED: the allowlist defines everything the agent can see.
 [ -f "$ALLOW" ] || die "missing allowlist $ALLOW -- refusing to launch"
 
+# --- egress proxy (network allowlist) ------------------------------------------
+# Route the agent's HTTP/HTTPS through sbox-net's per-group filtering proxy
+# (started on first use, shared by every worktree in the group). A domain that is
+# not in sandbox/net-allow.txt is blocked; the agent reports it and you run
+# `sbox-net allow <domain>`, then it retries. Set SBOX_NO_PROXY=1 to bypass (open
+# egress) while debugging. See README.md "Egress proxy".
+PROXY_ENV=()
+if [ "${SBOX_NO_PROXY:-0}" != 1 ]; then
+  "$TOPLEVEL/sbox-net" start \
+    || die "egress proxy failed to start (try '$TOPLEVEL/sbox-net status', or SBOX_NO_PROXY=1 to bypass)"
+  purl="$("$TOPLEVEL/sbox-net" url)"
+  PROXY_ENV=( -e HTTPS_PROXY="$purl" -e HTTP_PROXY="$purl"
+              -e https_proxy="$purl" -e http_proxy="$purl"
+              -e NO_PROXY="localhost,127.0.0.1,::1" -e no_proxy="localhost,127.0.0.1,::1" )
+fi
+
 # expand_path TOKEN -> absolute paths (one per line): a leading ~/$HOME expands to
 # your home dir, $CH to the grouping dir; then globs/words expand.
 expand_path() {
@@ -98,6 +114,7 @@ a=( run --rm --network host --ipc host --ulimit memlock=-1:-1 --group-add keep-g
     -e LD_LIBRARY_PATH="$CUDA/lib64"
     -e PATH="$WT/.venv/bin:$PATH" )
 if [ -t 0 ]; then a+=( -it ); fi
+if [ ${#PROXY_ENV[@]} -gt 0 ]; then a+=( "${PROXY_ENV[@]}" ); fi
 
 # (allowlist) mount ONLY the paths in allow.txt, each :ro or :rw. Anything not
 # listed is absent in the container -- your other files/projects/secrets simply

@@ -1,0 +1,33 @@
+# Egress allowlist: domains the sandboxed agent may connect to (HTTP/HTTPS).
+#
+# sbox-net's proxy allows a domain only if it -- or a parent domain -- is listed
+# here; anything else is blocked and logged as "needs approval". When the agent
+# reports a blocked domain, approve it on the host with:
+#
+#     sbox-net allow <domain>      # then the agent retries
+#
+# One domain per line; an entry matches that domain AND its subdomains (so
+# "anthropic.com" covers api.anthropic.com). "*.foo.com" also works. # comments
+# and blank lines are ignored. Shared by every worktree in the group -- edit and
+# commit here in the toplevel ch_dev. Remembered denials live in net-deny.txt.
+#
+# THIS IS A STARTER LIST. The approval flow fills in the long tail.
+
+# --- claude itself (REQUIRED -- without this the agent can't reach the API) ---
+anthropic.com
+
+# --- Python / pip ---
+pypi.org
+files.pythonhosted.org
+pythonhosted.org
+
+# --- conda ---
+anaconda.org
+anaconda.com
+
+# --- git hosting ---
+github.com
+githubusercontent.com
+codeload.github.com
+
+# (add more as 'sbox-net allow ...' surfaces them)

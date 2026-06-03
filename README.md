@@ -28,12 +28,14 @@ git worktrees, with a small number (usually one) of LLM agents per worktree.
 - [Scripts](#scripts)
 - [Daily workflow](#daily-workflow)
 - [Sandbox and GPU (summary)](#sandbox-and-gpu-summary)
+- [Egress proxy (network allowlist)](#egress-proxy-network-allowlist)
 - [Gotchas](#gotchas)
 - [Appendix A: cwd shadowing](#appendix-a-cwd-shadowing)
 - [Appendix B: activating the per-worktree venv for an agent](#appendix-b-activating-the-per-worktree-venv-for-an-agent)
 - [Appendix C: GPU compute inside the container](#appendix-c-gpu-compute-inside-the-container)
 - [Appendix D: container sandbox security trade-offs](#appendix-d-container-sandbox-security-trade-offs)
 - [Appendix E: git commit from a worktree (shared .git)](#appendix-e-git-commit-from-a-worktree-shared-git)
+- [Appendix F: richer egress-approval options (B-D)](#appendix-f-richer-egress-approval-options-b-d)
 
 ## Layout
 
@@ -186,14 +188,19 @@ seccomp tweak, no `nvidia-container-toolkit`; see Appendix C.
   self-locates the worktree, inherits your shell's `PATH` + `CONDA_PREFIX`, reads
   the `sandbox/` policy at launch, and runs `claude --dangerously-skip-permissions`
   in the container. Refuses to run from the toplevel.
+- `sbox-net` -- the egress filtering proxy + approval CLI (also tracked, run on the
+  host). Routes the agent's HTTP/HTTPS through a per-group domain allowlist;
+  `sbox-net allow <domain>` approves a blocked domain, `sbox-net deny <domain>`
+  remembers a block, `sbox-net start|stop|status|log|url` manage the proxy. See
+  "Egress proxy".
 - `dotfile_templates/` -- source templates for `.envrc` and `.claude/env.sh`
   (venv activation); `render_dotfiles` substitutes `{{WORKTREE}}`.
-- `sandbox/` -- editable policy lists `sbox-claude` reads at every launch (so edits
-  take effect immediately, for every worktree, with no re-render): `allow.txt`
-  (the default-deny filesystem allowlist -- `ro`/`rw <path>` per line; anything not
-  listed is absent in the container) and `devices.txt` (device nodes; default: all
-  GPUs). `sbox-claude` reads these from the TOPLEVEL ch_dev, so edit them there.
-  See Appendices C-E.
+- `sandbox/` -- editable policy, read at every launch from the TOPLEVEL ch_dev (so
+  edits apply to every worktree in the group, no re-render): `allow.txt` (the
+  default-deny filesystem allowlist -- `ro`/`rw <path>`; unlisted paths are absent
+  in the container), `devices.txt` (device nodes; default: all GPUs), and
+  `net-allow.txt` / `net-deny.txt` (the egress domain allow/deny lists used by
+  `sbox-net`). See Appendices C-F.
 
 ## Daily workflow
 
@@ -309,8 +316,43 @@ The `sandbox/` lists are plain text, read at every launch, so you edit them and
 just re-launch -- no re-render. `sbox-claude` is a tracked, machine-independent
 script (it inherits your shell's `PATH` + `CONDA_PREFIX` rather than baking
 anything in); `.venv`, `.envrc`, and `.claude/env.sh` are machine-specific and
-gitignored, while it, the templates, and `sandbox/*.txt` are tracked. Security trade-offs (open egress, `IS_SANDBOX`,
-writable object store) are in Appendix D.
+gitignored, while it, the templates, and `sandbox/*.txt` are tracked. Security
+trade-offs (`IS_SANDBOX`, writable object store) are in Appendix D; the network
+allowlist is below.
+
+## Egress proxy (network allowlist)
+
+The agent's network egress goes through **`sbox-net`**, a small per-grouping-dir
+filtering proxy on the host (the container's `HTTPS_PROXY` points at it). A domain
+is reachable only if it -- or a parent domain -- is on the git-tracked allowlist
+`sandbox/net-allow.txt`; everything else is blocked. HTTPS is filtered by the
+`CONNECT`/SNI hostname, so there is no TLS interception (no MITM, no cert).
+
+**The approval flow.** When the agent hits an unlisted domain the request fails
+and the agent reports the domain to you. You approve it on the host:
+
+    sbox-net allow github.com      # appends to net-allow.txt; the agent retries
+
+The agent re-runs the request and it now succeeds. To block a domain for good (so
+it never prompts again), `sbox-net deny <domain>` records a remembered denial in
+`net-deny.txt` (deny wins over allow).
+
+**One proxy, shared.** `sbox-claude` starts the proxy on first use -- one per
+grouping dir, reading the toplevel's lists -- so an approval applies to **every
+agent in every worktree** of the group at once. The lists live in git; approvals
+auto-append (you commit them when ready). Other commands: `sbox-net status | log |
+stop | url`. The allowlist is seeded with what claude itself needs
+(`anthropic.com`) plus common dev sources (pypi, conda, github); the approval flow
+fills in the rest.
+
+**Caveats.** The proxy filters every client that honors `HTTPS_PROXY` (`pip`,
+`curl`, `requests`, git-over-https, claude's own API) -- which is the
+prompt-injection vector, so it meaningfully shrinks exfiltration. It is *not* yet
+bypass-proof: the container still uses `--network host`, so a deliberately
+malicious payload could open a raw socket around the proxy (enforcing proxy-only
+egress rootless is a harder, later step). Set `SBOX_NO_PROXY=1` before
+`./sbox-claude` to bypass the proxy (open egress) while debugging. Richer approval
+UX (tmux prompt, hold-to-approve, phone push) is sketched in Appendix F.
 
 ## Gotchas
 
@@ -410,9 +452,13 @@ opens no CUDA context, so it can pass while compute fails.
 
 For a trusted single-user dev box these are acceptable trades; know what they are.
 
-**Network egress is open.** Model B runs `claude` *inside* the container, so the
-container needs the Anthropic API -- `--network host`. The agent could therefore
-reach arbitrary hosts. It **cannot push or exfiltrate via your keys**: `~/.ssh`,
+**Network egress is filtered (allowlist), not open.** Model B runs `claude`
+*inside* the container, so it needs network for the Anthropic API; egress goes
+through `sbox-net`'s per-group domain allowlist (see "Egress proxy"), so the agent
+reaches only approved domains via any `HTTPS_PROXY`-honoring client. It is not yet
+bypass-proof -- `--network host` remains, so a malicious payload could open a raw
+socket around the proxy (tightening that is future work). It **cannot push or
+exfiltrate via your keys**: `~/.ssh`,
 `~/.git-credentials`, and `~/.netrc` are not in the allowlist (absent in the
 container) and `SSH_AUTH_SOCK` is never passed in (the host agent sockets live in
 `/tmp`,`/run`, which are private tmpfs inside the container, so they are simply
@@ -420,7 +466,7 @@ absent). Your **personal** Claude token is out of reach too: `~/.claude` is not
 allowlisted, and the agent
 authenticates from its own per-group `CLAUDE_CONFIG_DIR` (`~/ch/.credentials.json`,
 a separate one-time `/login`). The agent *can* still read that group token and,
-with open egress, send it out -- but the damage is bounded by your subscription
+via an allowlisted domain that accepts content, send it out -- but the damage is bounded by your subscription
 scope (rate limits, not metered $), and you can revoke/re-login the group token
 without touching your personal one. To restrict *where* it connects, run a
 `pasta`/`slirp4netns` egress allowlist (only `api.anthropic.com` + your package
@@ -477,3 +523,28 @@ checkouts -- `config`/`hooks` are protected, history is not.
 
 For the toplevel `ch_dev` checkout, `.git` is inside the dir (and the toplevel is
 not containerized anyway), so there is nothing to bind.
+
+# Appendix F: richer egress-approval options (B-D, not implemented)
+
+The egress proxy ("Egress proxy" above) ships with **Design A**: a blocked domain
+fails, the agent reports it, you run `sbox-net allow <domain>`, the agent retries.
+Three richer approval UXes were considered and deferred -- recorded so the options
+aren't forgotten. All share the same backbone (one proxy, the git-tracked
+`net-allow.txt`, live re-read), so moving A -> B/C/D changes only the
+notify/approve front-end.
+
+- **B -- tmux approval pane.** The proxy enqueues blocked domains; a long-running
+  `sbox-net watch` in a tmux pane prompts `github.com -- allow? [y/N]` and appends
+  on `y`. One keypress instead of typing the domain; needs you watching the pane.
+- **C -- hold-and-approve (no retry).** Instead of failing, the proxy *holds* the
+  blocked connection open, notifies you, and completes it on approval -- so the
+  agent's request just pauses (like a permission prompt) and succeeds with no
+  retry. Risk: HTTP client connect-timeouts if you are slow to answer.
+- **D -- push to phone** (for unattended runs / when you are away from the SSH
+  session). On block the proxy pushes a notification with Allow/Deny buttons;
+  tapping Allow appends to the allowlist. Implement with **ntfy** (the ntfy app
+  shows it; the Allow button POSTs to a second ntfy topic the host *subscribes*
+  to, so the host makes only outbound connections -- no inbound endpoint needed on
+  the SSH box) or a **Telegram bot** (inline buttons + long-poll). Caveat: a public
+  broker sees which domains your agents hit; use random topics + a token, or
+  self-host the broker.

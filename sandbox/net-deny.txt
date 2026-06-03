@@ -1,0 +1,8 @@
+# Egress denylist: domains to BLOCK without ever re-prompting (a remembered
+# "deny"). The proxy blocks these silently -- they never show up as "needs
+# approval" again. Add one with:
+#
+#     sbox-net deny <domain>
+#
+# Same syntax as net-allow.txt (an entry covers the domain + its subdomains;
+# # comments and blank lines ignored). Deny wins over allow. Empty by default.
