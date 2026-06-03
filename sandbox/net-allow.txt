@@ -15,6 +15,14 @@
 
 # --- claude itself (REQUIRED -- without this the agent can't reach the API) ---
 anthropic.com
+# OAuth /login + updates use the newer first-party domains (token exchange hits
+# platform.claude.com; downloads.claude.ai serves binaries). Without these the
+# web-login paste fails even though anthropic.com is allowed.
+claude.com
+claude.ai
+# Claude Code telemetry/error logging (http-intake.logs.*.datadoghq.com). Not
+# strictly required, but the client assumes it; allowed as a first-party sink.
+datadoghq.com
 
 # --- Python / pip ---
 pypi.org
