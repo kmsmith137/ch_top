@@ -75,7 +75,7 @@ def refresh_dotfiles() -> None:
     """Re-render this worktree's generated dotfiles (.envrc, .claude/*) from the
     templates -- they are gitignored, so a rebase brings tracked files current
     but leaves these frozen at creation time. Report any that changed."""
-    changed = wl.render_dotfiles(wl.ROOT, sandbox=True, announce=False)
+    changed = wl.render_dotfiles(wl.ROOT, announce=False)
     if changed:
         wl.info(f"refreshed {len(changed)} dotfile(s) from updated templates:")
         for p in changed:

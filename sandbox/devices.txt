@@ -1,7 +1,7 @@
 # Device nodes passed into the container with --device (goal 5: GPU / NIC access,
 # capped at what your account can already open).
 #
-# Read by the per-worktree launcher (.agent/run) at every launch -- edit freely;
+# Read by sbox-claude at every launch -- edit freely;
 # changes take effect on the next launch, for all worktrees, with no re-render.
 # (The launcher reads this copy from the TOPLEVEL ch_dev, so edit it there.)
 #

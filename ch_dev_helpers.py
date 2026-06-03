@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import os
 import shlex
-import shutil
 import subprocess
 import sys
 import tomllib
@@ -22,13 +21,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 MANIFEST = ROOT / "git_repositories.toml"
 TEMPLATES = ROOT / "dotfile_templates"
-
-# Per-worktree agents run inside a rootless-Podman container (the "sandbox"),
-# launched by the rendered <worktree>/.agent/run. The base image overlays the
-# host /usr read-only, so it MUST be the same distro release as the host (its
-# glibc/loader has to match). Bump this when the host is upgraded, then re-verify
-# a GPU build. See README.md "Sandbox and GPU" and podman-sandbox-design.md.
-SANDBOX_IMAGE = "docker.io/library/ubuntu:24.04"
 
 
 def die(msg: str):
@@ -346,32 +338,13 @@ def _write_if_changed(path: Path, content: str, *, announce: bool, hint: str = "
     return True
 
 
-def ensure_sandbox_image() -> None:
-    """Make sure the Podman sandbox base image (SANDBOX_IMAGE) is present.
+def render_dotfiles(workdir: Path, *, announce: bool = True) -> list:
+    """Render the per-workspace dotfiles (.envrc and .claude/env.sh) into workdir.
 
-    The per-worktree launcher overlays the host /usr read-only, so the base image
-    must match the host distro. Pulls it once if missing; a no-op otherwise.
-    """
-    if shutil.which("podman") is None:
-        die("podman not found on PATH -- install it (see README.md 'One-time "
-            "setup'); the per-worktree agent sandbox runs on rootless Podman")
-    present = subprocess.run(
-        ["podman", "image", "exists", SANDBOX_IMAGE]).returncode == 0
-    if present:
-        info(f"sandbox image present: {SANDBOX_IMAGE}")
-    else:
-        run(["podman", "pull", SANDBOX_IMAGE])
-
-
-def render_dotfiles(workdir: Path, *, sandbox: bool, announce: bool = True) -> list:
-    """Render the per-workspace dotfiles into workdir.
-
-    Always renders .envrc and .claude/env.sh; renders the Podman sandbox launcher
-    .agent/run only when sandbox=True (i.e. for feature worktrees, not the
-    unsandboxed toplevel). Substitutes {{WORKTREE}} -> absolute workdir path in
-    .envrc/env.sh, and {{CONDA}}/{{IMAGE}} in the launcher. A literal $PATH in
-    env.sh is left untouched (the shell expands it when Claude sources the file
-    before each Bash command).
+    Substitutes {{WORKTREE}} -> absolute workdir path. A literal $PATH in env.sh
+    is left untouched (the shell expands it when Claude sources the file before
+    each Bash command). The Podman sandbox launcher is the tracked `sbox-claude`
+    script (run from a worktree), not a rendered dotfile.
 
     Files are written only if their content changed (idempotent re-render).
     Returns the list of Paths actually written. With announce=True (default)
@@ -395,27 +368,5 @@ def render_dotfiles(workdir: Path, *, sandbox: bool, announce: bool = True) -> l
     env_sh = (TEMPLATES / "claude-env.sh.tmpl").read_text().replace("{{WORKTREE}}", str(workdir))
     if _write_if_changed(claude_dir / "env.sh", env_sh, announce=announce):
         changed.append(claude_dir / "env.sh")
-
-    if sandbox:
-        # The Podman launcher: runs `claude` inside a per-worktree rootless
-        # container (the security boundary), so the agent needs no permission
-        # prompts. It resolves the worktree, the shared .git common-dirs, and the
-        # deny/read-write/device policy lists at launch; only the conda toolchain
-        # prefix and the base image are baked in here. The conda prefix follows
-        # whatever env is active (CONDA_PREFIX), falling back to the base
-        # interpreter's prefix. See README.md "Sandbox and GPU".
-        conda_prefix = os.environ.get("CONDA_PREFIX") or str(
-            Path(base_python()).resolve().parents[1])
-        agent_dir = workdir / ".agent"
-        agent_dir.mkdir(exist_ok=True)
-        launcher = ((TEMPLATES / "agent-run.tmpl").read_text()
-                    .replace("{{CONDA}}", conda_prefix)
-                    .replace("{{IMAGE}}", SANDBOX_IMAGE))
-        run_path = agent_dir / "run"
-        wrote = _write_if_changed(run_path, launcher, announce=announce,
-                                  hint=f"  (launch the agent with: {run_path})")
-        run_path.chmod(0o755)  # ensure executable on every render (idempotent)
-        if wrote:
-            changed.append(run_path)
 
     return changed

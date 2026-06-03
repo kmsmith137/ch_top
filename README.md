@@ -7,7 +7,7 @@ It's my personal system for organizing CHORD development into multiple
 git worktrees, with a small number (usually one) of LLM agents per worktree.
 
  - Orchestration scripts for creating/deleting worktrees with pre-initialized
-   dotfiles (`.envrc`, `.claude/*`, `.agent/run`), and moving commits around.
+   dotfiles (`.envrc`, `.claude/*`), and moving commits around.
  
  - Allows multiple git repos in each worktree (currently `ch_dev`, `ksgpu`, `pirate`).
  
@@ -15,7 +15,7 @@ git worktrees, with a small number (usually one) of LLM agents per worktree.
    (For humans, this is done with `direnv`. For LLMs, this is done with `.claude/*`.)
  
  - Sandboxing: per-worktree agents run inside a rootless-Podman container
-   (launched with `./.agent/run`) under `--dangerously-skip-permissions`, so they
+   (launched with `./sbox-claude`) under `--dangerously-skip-permissions`, so they
    do real work -- including GPU compute -- with no permission prompts, while
    being unable to read your secrets or escape the container. (The "top-level"
    ch_dev agent(s) aren't containerized, only the agents that run in worktrees.)
@@ -69,7 +69,7 @@ submodules or git subtrees.
     # per feature:
     python3 init_worktree.py ch_myfeature    # make ../ch_myfeature (worktrees + venv)
     cd ../ch_myfeature && direnv allow .
-    tmux new -s ch_myfeature && ./.agent/run # run the sandboxed agent (claude in a container)
+    tmux new -s ch_myfeature && ./sbox-claude # run the sandboxed agent (claude in a container)
 
     # the two init_* scripts above build the .venv for you (via init_venv.py);
     # run init_venv.py directly only to REBUILD an existing workspace's venv:
@@ -144,11 +144,11 @@ and pull the base image:
     sudo apt-get install podman        # or have podman on $PATH
     podman pull docker.io/library/ubuntu:24.04
 
-`init_worktree.py` pulls the image for you if it is missing, so the explicit pull
-is optional. The base image **must match the host distro** (Ubuntu 24.04): the
+`sbox-claude` pulls the image for you on first use, so the explicit pull is
+optional. The base image **must match the host distro** (Ubuntu 24.04): the
 container overlays the host `/usr` read-only to get your real toolchain + NVIDIA
-driver libs, so a mismatched glibc breaks the dynamic loader. Bump `SANDBOX_IMAGE`
-in `ch_dev_helpers.py` when you upgrade the host.
+driver libs, so a mismatched glibc breaks the dynamic loader. Bump the `IMAGE=`
+line in `sbox-claude` when you upgrade the host.
 
 Verify: `podman run --rm docker.io/library/ubuntu:24.04 true` exits 0. GPU compute
 then works automatically (device passthrough + host CUDA libs) -- no shim, no
@@ -180,23 +180,24 @@ seccomp tweak, no `nvidia-container-toolkit`; see Appendix C.
   integration branch (land up; the merge itself runs in the toplevel checkout,
   where the integration branch lives). See "Branch workflow" below.
 - `ch_dev_helpers.py` -- shared helpers (manifest, paths, dotfile rendering,
-  the multi-repo git logic). Holds `SANDBOX_IMAGE` (the container base image) and
-  `ensure_sandbox_image()`.
-- `dotfile_templates/` -- source templates for `.envrc`, `.claude/env.sh`, and
-  the per-worktree Podman launcher `.agent/run`. `render_dotfiles` substitutes
-  `{{WORKTREE}}` (in `.envrc`/`env.sh`) and `{{CONDA}}`/`{{IMAGE}}` (in the
-  launcher); the deny/read-write/device policy is read at launch from `sandbox/`,
-  not baked in.
-- `sandbox/` -- editable policy lists the launcher reads at every launch (so edits
+  the multi-repo git logic).
+- `sbox-claude` -- the rootless-Podman sandbox launcher: a tracked, machine-
+  independent script you run from a feature worktree (`./sbox-claude`). It
+  self-locates the worktree, inherits your shell's `PATH` + `CONDA_PREFIX`, reads
+  the `sandbox/` policy at launch, and runs `claude --dangerously-skip-permissions`
+  in the container. Refuses to run from the toplevel.
+- `dotfile_templates/` -- source templates for `.envrc` and `.claude/env.sh`
+  (venv activation); `render_dotfiles` substitutes `{{WORKTREE}}`.
+- `sandbox/` -- editable policy lists `sbox-claude` reads at every launch (so edits
   take effect immediately, for every worktree, with no re-render): `deny.txt`
   (paths masked from the agent), `readwrite.txt` (extra writable paths),
-  `devices.txt` (device nodes; default: all GPUs). The launcher reads these from
+  `devices.txt` (device nodes; default: all GPUs). `sbox-claude` reads these from
   the TOPLEVEL ch_dev, so edit them there. See Appendices C-E.
 
 ## Daily workflow
 
 **Run the agent from inside the worktree.** `cd ~/ch/ch_<feature>` (direnv fires,
-activating the venv and exporting `CLAUDE_ENV_FILE`), then `./.agent/run`. This
+activating the venv and exporting `CLAUDE_ENV_FILE`), then `./sbox-claude`. This
 launches `claude` inside the worktree's rootless-Podman sandbox; inside it,
 `which python` -> `~/ch/ch_<feature>/.venv/bin/python`. Launching from elsewhere
 breaks venv activation for the agent (Appendix A/B). To get an *unsandboxed* shell
@@ -275,7 +276,7 @@ repos, create sibling worktrees). Feature worktrees ARE sandboxed.
 
 ## Sandbox and GPU (summary)
 
-`./.agent/run` (rendered into each feature worktree by `init_worktree.py`)
+`./sbox-claude` (a tracked script you run from a feature worktree)
 launches `claude` inside a per-worktree **rootless-Podman** container with
 `--dangerously-skip-permissions` (plus `IS_SANDBOX=1`). The kernel/container is
 the security boundary, so the agent does real work -- including GPU compute --
@@ -304,9 +305,10 @@ manifest IS the security model:
   CUDA libs (RO) + default seccomp. No shim, no seccomp override (Appendix C).
 
 The `sandbox/` lists are plain text, read at every launch, so you edit them and
-just re-launch -- no re-render. The launcher, `.venv`, `.envrc`, and
-`.claude/env.sh` are machine-specific and gitignored; the templates and
-`sandbox/*.txt` are tracked. Security trade-offs (open egress, `IS_SANDBOX`,
+just re-launch -- no re-render. `sbox-claude` is a tracked, machine-independent
+script (it inherits your shell's `PATH` + `CONDA_PREFIX` rather than baking
+anything in); `.venv`, `.envrc`, and `.claude/env.sh` are machine-specific and
+gitignored, while it, the templates, and `sandbox/*.txt` are tracked. Security trade-offs (open egress, `IS_SANDBOX`,
 writable object store) are in Appendix D.
 
 ## Gotchas
@@ -358,17 +360,19 @@ string and clobber PATH. The mechanism that works is Claude's **`CLAUDE_ENV_FILE
 a script Claude sources before every Bash command, where `$PATH` *does* expand.
 
 - `.envrc` exports `CLAUDE_ENV_FILE="$PWD/.claude/env.sh"` (for `claude` run
-  directly on the host). The worktree launcher `.agent/run` passes the same path
-  into the container with `-e CLAUDE_ENV_FILE`, so it applies there too.
+  directly on the host). `sbox-claude` passes the same path into the container
+  with `-e CLAUDE_ENV_FILE`, so it applies there too.
 - `.claude/env.sh` (generated) does `export PATH="<worktree>/.venv/bin:$PATH"`
   (plus `VIRTUAL_ENV`, `PYTHONSAFEPATH`). It is sourced *after* bashrc's conda
   activation, so the venv wins.
 
-Inside the container the launcher also sets `VIRTUAL_ENV`, `PYTHONSAFEPATH`,
-`CONDA_PREFIX`, `CUPY_CACHE_DIR`, and a baseline `PATH` (venv : conda : cuda :
-system dirs) via `-e`; `~/.bashrc` still runs `conda activate`, and `env.sh`
-layers the venv on top for each Bash command. Hence "launch the agent from the
-worktree": `./.agent/run` self-locates the worktree and wires all of this up.
+`sbox-claude` does NOT re-derive your toolchain: it runs in your bashrc+conda+
+direnv-sourced shell, so it just forwards your live `PATH` and `CONDA_PREFIX`
+into the container (prepending `<worktree>/.venv/bin` for safety) and sets
+`VIRTUAL_ENV`, `PYTHONSAFEPATH`, `CUPY_CACHE_DIR`, `LD_LIBRARY_PATH`. `~/.bashrc`
+still runs `conda activate` inside, and `env.sh` layers the venv on top for each
+Bash command. Hence "launch from the worktree, in an activated shell":
+`./sbox-claude` self-locates the worktree and wires all of this up.
 
 The `init_*` scripts themselves also feel `PYTHONSAFEPATH=1`: once direnv has run
 in ch_dev, a bare `import ch_dev_helpers` would fail (the script dir is dropped
@@ -440,8 +444,8 @@ single-user box; not a defense against a kernel-exploit-grade adversary.
 empty unreadable dir (for a directory) or file (for a file); the agent sees an
 empty node, not the contents. Masking hides contents, not existence.
 
-**The base image must track the host distro** (host `/usr` is overlaid); bump
-`SANDBOX_IMAGE` on a host upgrade and re-verify GPU + a build.
+**The base image must track the host distro** (host `/usr` is overlaid); bump the
+`IMAGE=` line in `sbox-claude` on a host upgrade and re-verify GPU + a build.
 
 # Appendix E: `git commit` from a worktree (shared .git)
 
@@ -452,7 +456,7 @@ container's read-only base it would be read-only and the commit would fail.
 
 The shared `.git` stores sit inside the grouping dir, which the launcher mounts
 `:rw` as a whole -- so `git commit` writes objects/refs there with no prompt. On
-top of that, `.agent/run` resolves each repo's common-dir (`git -C <repo>
+top of that, `sbox-claude` resolves each repo's common-dir (`git -C <repo>
 rev-parse --git-common-dir`) and re-pins its `config` file and `hooks/` dir `:ro`
 (Podman applies the deeper mount last, so read-only wins over the read-write
 parent). This matters: `config` and `hooks/` are settings/code that execute in

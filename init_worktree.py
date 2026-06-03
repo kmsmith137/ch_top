@@ -8,8 +8,8 @@ Creates the sibling directory ../NAME containing:
   - a worktree of each manifest repo on a new branch NAME, based on that repo's
     integration branch (ksgpu off 'chord', pirate off 'kms', ...)
   - submodules initialized in each new worktree (e.g. pirate's asdf-cxx)
-  - rendered .envrc + .claude/env.sh (venv activation) and .agent/run (the
-    rootless-Podman sandbox launcher)
+  - rendered .envrc + .claude/env.sh (venv activation); the rootless-Podman
+    sandbox launcher is the tracked ./sbox-claude, checked out with the worktree
   - a .venv overlay with editable installs
 
 See plans/multi_agent_workspace.md Sections 2c, 6, 7.
@@ -65,17 +65,17 @@ def main() -> None:
         wl.run(["git", "-C", str(inner),
                 "submodule", "update", "--init", "--recursive"])
 
-    # 3. Dotfiles: venv activation (.envrc, .claude/env.sh) + the Podman sandbox
-    #    launcher (.agent/run). Then make sure its base image is pulled.
-    wl.render_dotfiles(worktree, sandbox=True)
-    wl.ensure_sandbox_image()
+    # 3. Dotfiles: venv activation (.envrc, .claude/env.sh). The sandbox launcher
+    #    is the tracked ./sbox-claude (checked out with the worktree); it pulls
+    #    its base image itself on first use.
+    wl.render_dotfiles(worktree)
 
     # 4. Build the venv overlay (editable installs).
     if not args.no_venv:
         init_venv.build(worktree)
 
     wl.info(f"worktree ready: {worktree}")
-    wl.info(f"next: 'direnv allow {worktree}', then 'cd {worktree} && ./.agent/run' "
+    wl.info(f"next: 'direnv allow {worktree}', then 'cd {worktree} && ./sbox-claude' "
             f"to start the sandboxed agent (or run plain 'claude' for an "
             f"unsandboxed shell there)")
     # The sandbox uses CLAUDE_CONFIG_DIR=<grouping dir>, so auth is per-group and

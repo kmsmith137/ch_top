@@ -3,7 +3,7 @@
 # Each existing path listed here is masked by mounting an empty, unreadable
 # (chmod 000) node over it -- an empty dir over a directory, an empty file over a
 # file -- so inside the container the agent finds an empty placeholder instead of
-# the contents. Read by the per-worktree launcher (.agent/run) at every launch --
+# the contents. Read by sbox-claude at every launch --
 # edit freely; changes take effect on the next launch, for all worktrees in the
 # group, with no re-render. (The launcher reads this copy from the TOPLEVEL ch_dev,
 # and it is mounted read-only into the container, so the agent cannot edit it.)

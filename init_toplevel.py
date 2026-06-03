@@ -9,9 +9,9 @@ the ch_dev .venv. Idempotent: existing clones are left in place (only submodules
 are refreshed; a branch mismatch is warned about, not changed).
 
 The toplevel ch_dev is your *unsandboxed* management workspace (you run these
-scripts here, and they must write outside the dir), so no Podman sandbox launcher
-(.agent/run) is rendered for it -- only .envrc + .claude/env.sh for venv
-activation.
+scripts here, and they must write outside the dir); it renders only .envrc +
+.claude/env.sh for venv activation. (The sandbox launcher ./sbox-claude is a
+tracked script and refuses to run from the toplevel anyway.)
 """
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ def main() -> None:
     for name, cfg in wl.load_manifest().items():
         setup_repo(name, cfg["url"], cfg["branch"])
 
-    wl.render_dotfiles(wl.ROOT, sandbox=False)
+    wl.render_dotfiles(wl.ROOT)
 
     if not args.no_venv:
         init_venv.build(wl.ROOT)

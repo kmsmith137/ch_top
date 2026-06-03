@@ -8,7 +8,7 @@
 #     .claude.json, .credentials.json, projects/).
 # So you only need entries here for paths OUTSIDE the grouping dir.
 #
-# Read by the per-worktree launcher (.agent/run) at every launch -- edit freely;
+# Read by sbox-claude at every launch -- edit freely;
 # changes take effect on the next launch, for all worktrees, with no re-render.
 # (The launcher reads this copy from the TOPLEVEL ch_dev, so edit it there.)
 #

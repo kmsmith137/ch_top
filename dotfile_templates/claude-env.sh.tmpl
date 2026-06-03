@@ -1,6 +1,6 @@
 # Sourced by Claude Code before EVERY Bash command, via CLAUDE_ENV_FILE. On the
 # host (the unsandboxed toplevel) .envrc exports CLAUDE_ENV_FILE when you `cd` in;
-# inside a worktree's Podman sandbox the launcher (.agent/run) passes the same
+# inside a worktree's Podman sandbox sbox-claude passes the same
 # path with `-e CLAUDE_ENV_FILE`. Either way Claude sources ~/.bashrc (your conda
 # activation) once at session start and does NOT persist env between commands, so
 # the per-worktree venv must be re-applied for each command -- this file does
