@@ -6,18 +6,17 @@ This directory is a "container" git repo that holds three sub-repos
   ./ksgpu    GPU C++/CUDA core utils
   ./pirate   real-time FRB search engine
 
-Our setup is as follows. The toplevel clone and its feature worktrees live
-together as siblings inside a "grouping" dir -- any dir except $HOME itself (call
-it $CH; ~/ch in these examples). Paths below are RELATIVE to $CH: the grouping-dir
-name is arbitrary, relative paths read the same inside the sandbox container, and
-only fixed system/home paths (e.g. ~/.ssh, ~/miniforge3) are written absolute. We
-start by cloning the container repo (github: ch_top) into the toplevel dir 'top',
-then its sub-repos under it (the "toplevel" repos):
+Our setup is as follows (all pathnames are relative to a "grouping" dir,
+usually ~/ch):
 
   top/         -> plain clone of ch_top, pointed at github remote (main branch)  [toplevel]
   top/pipmake  -> plain clone pointed at github remote (main branch)
   top/ksgpu    -> plain clone pointed at github remote (chord branch)
   top/pirate   -> plain clone pointed at github remote (kms branch)
+  
+  extern/      -> external reference source trees (see below)
+  claude/      -> the sandboxed agents' CLAUDE_CONFIG_DIR (.claude.json,
+                   .credentials.json, projects/; per-group, separate from ~/.claude)
 
 Then, for each feature we want to implement, we make git worktrees for all 4
 repos. For example, if the feature is named 'dev', then:
@@ -27,25 +26,13 @@ repos. For example, if the feature is named 'dev', then:
   dev/ksgpu   -> git worktree of top/ksgpu
   dev/pirate  -> git worktree of top/pirate
 
-Also in $CH (siblings of the checkouts):
-
-  claude/         -> the sandboxed agent's CLAUDE_CONFIG_DIR (.claude.json,
-                     .credentials.json, projects/; per-group, separate from ~/.claude)
-  extern/         -> external reference source trees (see below)
-
 The first thing you should do on startup is figure out whether you are
 in a worktree. (Toplevel and worktrees are siblings in the grouping dir;
 in a worktree, .git is a file; in the toplevel, it is a directory.)
 
-If you are making edits in any of the sub-repos, then you MUST
-read the per-subrepo CLAUDE.md (either ./ksgpu/CLAUDE.md or
-./pirate/CLAUDE.md) which contain additional instructions.
-
-The grouping dir's extern/ holds source trees for some external software that may
-be useful as a reference. For most tasks you won't need them. From a worktree it
-is a sibling, i.e. ../extern:
-
-  ../extern/chord-frb-sifter  -> real-time code "downstream" from the FRB search
+If you are making edits in any of the sub-repos (pipmake, ksgpu, or pirate),
+then you MUST read the per-subrepo CLAUDE.md (e.g. ./pirate/CLAUDE.md)
+which contains additional instructions.
 
 Network egress (HTTP/HTTPS) is filtered by an allowlisting proxy. A request to a
 domain that is not on the allowlist fails -- you will see a proxy "403" / "CONNECT
@@ -56,6 +43,16 @@ the ONLY acceptable response is to surface it: tell me the exact domain and why
 you need it (what you were doing, the URL or command), and let me decide. I
 approve a domain on the host with `sbox-net allow <domain>`, after which you can
 retry. You cannot approve it yourself -- the allowlist is read-only to you.
+
+The grouping dir's extern/ holds source trees for some external software that may
+be useful as a reference. For most tasks you won't need them. From a worktree it
+is a sibling, i.e. ../extern:
+
+  ../extern/chord-frb-sifter  -> real-time code "downstream" from the FRB search
+
+If there is anything that you would like me to add to 'extern', please let me know
+(for example, source code for a third-party library, especially a case when the
+egress proxy would prevent you from viewing it online).
 
 CRITICAL: things not to do:
    - Do not git commit unless explicitly asked.
