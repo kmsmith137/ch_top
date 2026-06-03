@@ -15,6 +15,6 @@
 /dev/nvidia*
 
 # RDMA / InfiniBand verbs -- uncomment if pirate needs them (the user account can
-# open these world-rw nodes; see podman-sandbox-design.md):
+# open these world-rw nodes; see README.md Appendix C):
 # /dev/infiniband/rdma_cm
 # /dev/infiniband/uverbs*

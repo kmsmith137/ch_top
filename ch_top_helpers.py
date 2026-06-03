@@ -2,7 +2,7 @@
 
 ch_top is a personal multi-repo workspace. The inner repos (ksgpu, pirate, ...)
 are plain clones listed in git_repositories.toml; feature workspaces are git
-worktrees. See README.md and plans/multi_agent_workspace.md for the design.
+worktrees. See README.md for the design.
 
 NOTE: nothing here names or activates a conda env. Every script assumes the
 correct conda toolchain env is already active in your shell (you load it in

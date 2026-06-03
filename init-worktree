@@ -12,7 +12,7 @@ Creates the sibling directory ../NAME containing:
     sandbox launcher is the tracked ./sbox-claude, checked out with the worktree
   - a .venv overlay with editable installs
 
-See plans/multi_agent_workspace.md Sections 2c, 6, 7.
+See README.md ("Layout", "Scripts") for the design.
 """
 from __future__ import annotations
 

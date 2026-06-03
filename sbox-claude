@@ -18,7 +18,7 @@
 # Everything else (your other files, projects, and secrets) is simply absent --
 # no masking needed. The grouping dir ($CH) is always read-write. Edit those and
 # re-launch -- they are read every launch. See README.md "Sandbox and GPU" and
-# podman-sandbox-design.md for the full model.
+# its appendices for the full model.
 set -euo pipefail
 shopt -s nullglob                      # unmatched globs vanish (devices, subdirs)
 

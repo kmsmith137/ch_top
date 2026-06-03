@@ -35,7 +35,7 @@ git worktrees, with a small number (usually one) of LLM agents per worktree.
 - [Appendix C: GPU compute inside the container](#appendix-c-gpu-compute-inside-the-container)
 - [Appendix D: container sandbox security trade-offs](#appendix-d-container-sandbox-security-trade-offs)
 - [Appendix E: git commit from a worktree (shared .git)](#appendix-e-git-commit-from-a-worktree-shared-git)
-- [Appendix F: richer egress-approval options (B-D)](#appendix-f-richer-egress-approval-options-b-d)
+- [Appendix F: richer egress-approval options (B-D, not implemented)](#appendix-f-richer-egress-approval-options-b-d-not-implemented)
 
 ## Layout
 
@@ -353,9 +353,16 @@ it never prompts again), `sbox-net deny <domain>` records a remembered denial in
 grouping dir, reading the toplevel's lists -- so an approval applies to **every
 agent in every worktree** of the group at once. The lists live in git; approvals
 auto-append (you commit them when ready). Other commands: `sbox-net status | log |
-stop | url`. The allowlist is seeded with what claude itself needs
-(`anthropic.com`) plus common dev sources (pypi, conda, github); the approval flow
-fills in the rest.
+stop | url`. The lists are curated for a **prompt-injection** threat model -- the
+test for the allowlist is "is the served text first-party (vendor-authored)?". It
+holds what claude itself needs (`anthropic.com`, `claude.com`/`claude.ai`) plus
+first-party documentation sites (CUDA, `python.org`, numpy, grpc, ...). User-
+generated content (`github.com`, pypi/conda *project pages*, stackoverflow, ...)
+is deliberately NOT allowlisted -- that is the injection vector, and you run
+pip/conda by hand -- so it stays blocked-by-default and is approved per-use only
+if a real need arises. `net-deny.txt` (empty by default) is for UGC you never want
+to be even asked about. The header comments in `net-allow.txt` spell out the full
+policy.
 
 **Caveats.** The proxy filters every client that honors `HTTPS_PROXY` (`pip`,
 `curl`, `requests`, git-over-https, claude's own API) -- which is the
