@@ -18,7 +18,6 @@ anthropic.com
 
 # --- Python / pip ---
 pypi.org
-files.pythonhosted.org
 pythonhosted.org
 
 # --- conda ---
@@ -28,6 +27,5 @@ anaconda.com
 # --- git hosting ---
 github.com
 githubusercontent.com
-codeload.github.com
 
 # (add more as 'sbox-net allow ...' surfaces them)
