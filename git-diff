@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """`git diff` across all repos in a ch_dev workspace.
 
-    git-diff.py [GIT_DIFF_ARGS...]
+    git-diff [GIT_DIFF_ARGS...]
 
 Runs `git diff` in the workspace root (ch_dev / ch_<feature>) and in each
 manifest repo subdir (ksgpu, pirate, ...), under a per-repo header. Extra args
-are passed through to git, e.g. `git-diff.py --stat` or `git-diff.py --cached`.
+are passed through to git, e.g. `git-diff --stat` or `git-diff --cached`.
 
 Exits with the worst git exit code across the repos (note: a plain `git diff`
 returns 0 even when there are changes; use `--exit-code` if you want non-zero).

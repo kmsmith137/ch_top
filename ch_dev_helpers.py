@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import os
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -81,7 +83,7 @@ def workspace_repos(workdir=ROOT):
     """
     workdir = Path(workdir).resolve()
     if not (workdir / ".git").exists():
-        die(f"{workdir} is not a git repo (run init_toplevel.py / init_worktree.py?)")
+        die(f"{workdir} is not a git repo (run init-toplevel / init-worktree?)")
     repos = [(workdir.name, workdir)]
     for name in load_manifest():
         sub = workdir / name
@@ -296,7 +298,7 @@ def branch_relations(workdir=ROOT):
 def base_python() -> str:
     """Path to the *base* (non-venv) interpreter, i.e. the conda env's python.
 
-    If init_venv is run from inside an already-active venv overlay, seeding the
+    If init-venv is run from inside an already-active venv overlay, seeding the
     new venv from that overlay would chain its editable installs in. Using the
     base interpreter avoids that.
     """
@@ -320,6 +322,90 @@ def venv_env(workdir: Path) -> dict:
     env["PATH"] = f"{venv / 'bin'}:{env['PATH']}"
     env.pop("PYTHONHOME", None)
     return env
+
+
+# Repos to install into a workspace venv, in dependency order (ksgpu before
+# pirate). NOT derived from the manifest: build_venv hardcodes the per-repo
+# editable-install recipe, so when you add a repo to git_repositories.toml you
+# must also add it here (see the REMINDER in the manifest). The editable install
+# (`pip install --no-build-isolation -e .`) is what compiles the native libs:
+# pirate/ksgpu use the `pipmake` backend, whose build_editable runs `make
+# build_wheel` -- which builds the import-critical .so's. We deliberately do NOT
+# run a separate `make`/`make all` first: `all` pulls in pirate's `lib` target,
+# whose `configs/asdf_header.yml` rule runs `python -m pirate_frb ...` (not
+# importable until AFTER the editable install, and its `> asdf_header.yml` redirect
+# would truncate that file). Installing is sufficient and correctly ordered.
+BUILD = ["ksgpu", "pirate"]
+
+# Fast import check (always run). The heavy GPU unit test is gated behind test=.
+SMOKE_IMPORT = "import ksgpu, pirate_frb; print('import ok')"
+HEAVY_TEST = ["-m", "pirate_frb", "test", "-n", "1"]
+
+
+def build_venv(workdir, *, recreate: bool = False, test: bool = False) -> None:
+    """Create (or refresh) <workdir>/.venv: a --system-site-packages overlay on
+    the active conda env, with each repo in BUILD compiled + installed editable.
+
+    Called in-process by init-toplevel / init-worktree, and standalone via the
+    init-venv CLI. See README.md.
+    """
+    workdir = Path(workdir).resolve()
+    if not workdir.is_dir():
+        die(f"workdir does not exist: {workdir}")
+
+    # Reminder enforcement: warn about manifest repos this does not build.
+    built = set(BUILD)
+    for name in load_manifest():
+        if name not in built:
+            warn(f"repo '{name}' is in the manifest but build_venv does not build "
+                 f"it -- add it to BUILD in {Path(__file__).name}")
+
+    venv = workdir / ".venv"
+    if venv.exists() and recreate:
+        info(f"removing existing venv {venv}")
+        shutil.rmtree(venv)
+
+    if not venv.exists():
+        run([base_python(), "-m", "venv", "--system-site-packages", str(venv)])
+    else:
+        info(f"reusing existing venv {venv} (use --recreate to rebuild)")
+
+    env = venv_env(workdir)
+    pip = str(venv / "bin" / "pip")
+    py = str(venv / "bin" / "python")
+
+    # Build backend for the --no-build-isolation editable installs.
+    run([pip, "install", "pipmake"], env=env)
+    # `editables` must live IN the venv, not merely be visible via
+    # --system-site-packages: an editable install's .pth imports it during
+    # interpreter startup, before the conda site-packages are on sys.path, so the
+    # conda copy is not yet importable and the .pth (hence the package it
+    # registers) is silently dropped ("No module named 'editables'"). Force it
+    # into the venv's own site-packages.
+    run([pip, "install", "--ignore-installed", "editables"], env=env)
+
+    for name in BUILD:
+        repo = workdir / name
+        if not repo.is_dir():
+            die(f"repo dir missing: {repo}  (run init-toplevel first?)")
+        # The editable install runs `make build_wheel` (via pipmake) to compile the
+        # native libs; no separate `make` step -- see the BUILD comment above.
+        run([pip, "install", "--no-build-isolation", "-e", "."], cwd=str(repo), env=env)
+
+    # Smoke test from a throwaway directory, NOT the workspace root. The root
+    # contains 'ksgpu/' (and 'pirate/') source subdirs that Python would pick up
+    # from sys.path[0] as empty PEP 420 namespace packages, shadowing the
+    # editable-installed packages -- hiding ksgpu's __init__.py and its ctypes
+    # RTLD_GLOBAL trick (=> "undefined symbol: ksgpu::convert_array_from_python").
+    # The worktree env sets PYTHONSAFEPATH=1 to neutralize this for every cwd, but
+    # build_venv must not depend on that being active -- it can run during
+    # first-time setup, before those dotfiles exist. See README.md "cwd shadowing".
+    with tempfile.TemporaryDirectory() as tmp:
+        run([py, "-c", SMOKE_IMPORT], cwd=tmp, env=env)
+        if test:
+            run([py, *HEAVY_TEST], cwd=tmp, env=env)
+
+    info(f"venv ready: {venv}")
 
 
 def _write_if_changed(path: Path, content: str, *, announce: bool, hint: str = "") -> bool:
@@ -349,7 +435,7 @@ def render_dotfiles(workdir: Path, *, announce: bool = True) -> list:
     Files are written only if their content changed (idempotent re-render).
     Returns the list of Paths actually written. With announce=True (default)
     prints an info() line per written file; callers that want their own
-    reporting (e.g. git-rebase-down.py) pass announce=False.
+    reporting (e.g. git-rebase-down) pass announce=False.
     """
     workdir = Path(workdir).resolve()
     changed = []

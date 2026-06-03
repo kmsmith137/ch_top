@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Create a feature workspace as a set of git worktrees, then build its venv.
 
-    init_worktree.py NAME [--no-venv]
+    init-worktree NAME [--no-venv]
 
 Creates the sibling directory ../NAME containing:
   - a worktree of ch_dev on a new branch NAME (off current HEAD)
@@ -28,7 +28,6 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import ch_dev_helpers as wl
-import init_venv
 
 
 def main() -> None:
@@ -58,7 +57,7 @@ def main() -> None:
     for repo, cfg in repos.items():
         main_repo = wl.ROOT / repo
         if not main_repo.is_dir():
-            wl.die(f"{main_repo} missing -- run init_toplevel.py first")
+            wl.die(f"{main_repo} missing -- run init-toplevel first")
         inner = worktree / repo
         wl.run(["git", "-C", str(main_repo), "worktree", "add",
                 str(inner), "-b", name, cfg["branch"]])
@@ -72,7 +71,7 @@ def main() -> None:
 
     # 4. Build the venv overlay (editable installs).
     if not args.no_venv:
-        init_venv.build(worktree)
+        wl.build_venv(worktree)
 
     wl.info(f"worktree ready: {worktree}")
     wl.info(f"next: 'direnv allow {worktree}', then 'cd {worktree} && ./sbox-claude' "

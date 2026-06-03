@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Tear down a feature workspace created by init_worktree.py.
+"""Tear down a feature workspace created by init-worktree.
 
-    delete_worktree.py NAME [--force]
+    delete-worktree NAME [--force]
 
 Removes the per-repo worktrees and the ch_dev worktree for ../NAME, then deletes
 each repo's feature branch NAME with `git branch -d` (which refuses unless the
@@ -52,7 +52,7 @@ def repo_problems(repo, wt_path, main_path, integ, feat):
         ab = wl._ahead_behind(main_path, integ, feat)  # (ahead, behind) of feat
         if ab is not None and ab[0] > 0:
             problems.append(f"{repo}: {ab[0]} commit(s) on '{feat}' not merged up "
-                            f"to '{integ}' -- run git-merge-up.py first")
+                            f"to '{integ}' -- run git-merge-up first")
     return problems
 
 

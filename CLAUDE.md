@@ -6,24 +6,29 @@ This directory is a "container" git repo that holds two sub-repos
   ./pirate   real-time FRB search engine
 
 Our setup is as follows. The toplevel clone and its feature worktrees live
-together as siblings inside a "grouping" dir -- any dir except $HOME itself
-(~/ch below; in this dev clone it's ~/docker). We start by cloning all 3 repos
-into the toplevel (these are called the "toplevel" repos):
+together as siblings inside a "grouping" dir -- any dir except $HOME itself (call
+it $CH; ~/ch in these examples, ~/docker in this dev clone). Paths below are
+RELATIVE to $CH: the grouping-dir name is arbitrary, relative paths read the same
+inside the sandbox container, and only fixed system/home paths (e.g. ~/.ssh,
+~/miniforge3) are written absolute. We start by cloning all 3 repos into the
+toplevel (the "toplevel" repos):
 
-  ~/ch/ch_dev/        -> plain clone pointed at github remote (main branch)
-  ~/ch/ch_dev/ksgpu   -> plain clone pointed at github remote (chord branch)
-  ~/ch/ch_dev/pirate  -> plain clone pointed at github remote (kms branch)
+  ch_dev/         -> plain clone pointed at github remote (main branch)   [toplevel]
+  ch_dev/ksgpu    -> plain clone pointed at github remote (chord branch)
+  ch_dev/pirate   -> plain clone pointed at github remote (kms branch)
 
-Then, for each feature we want to implement, we make git worktrees
-for all 3 repos. For example, if the feature is named 'ch_test', then:
+Then, for each feature we want to implement, we make git worktrees for all 3
+repos. For example, if the feature is named 'ch_test', then:
 
-  ~/ch/ch_test/          -> git worktree pointed at ~/ch/ch_dev
-  ~/ch/ch_test/ksgpu     -> git worktree pointed at ~/ch/ch_dev/ksgpu
-  ~/ch/ch_test/pirate    -> git worktree pointed at ~/ch/ch_dev/pirate
+  ch_test/        -> git worktree of ch_dev
+  ch_test/ksgpu   -> git worktree of ch_dev/ksgpu
+  ch_test/pirate  -> git worktree of ch_dev/pirate
 
-The grouping dir holds the sandboxed agent's Claude config home in a `claude`
-subdir (CLAUDE_CONFIG_DIR=~/ch/claude): ~/ch/claude/.claude.json,
-~/ch/claude/.credentials.json, ~/ch/claude/projects/.
+Also in $CH (siblings of the checkouts):
+
+  claude/         -> the sandboxed agent's CLAUDE_CONFIG_DIR (.claude.json,
+                     .credentials.json, projects/; per-group, separate from ~/.claude)
+  extern/         -> external reference source trees (see below)
 
 The first thing you should do on startup is figure out whether you are
 in a worktree. (Toplevel and worktrees are siblings in the grouping dir;
@@ -33,12 +38,12 @@ If you are making edits in any of the sub-repos, then you MUST
 read the per-subrepo CLAUDE.md (either ./ksgpu/CLAUDE.md or
 ./pirate/CLAUDE.md) which contain additional instructions.
 
-The directory ~/git contains source trees for some external
-software that may be useful as a reference. For most tasks,
-you won't need to read these source trees.
+The grouping dir's extern/ holds source trees for some external software that may
+be useful as a reference. For most tasks you won't need them. From a worktree it
+is a sibling, i.e. ../extern:
 
-  ~/git/pipmake           -> used in build system
-  ~/git/chord-frb-sifter  -> real-time code "downstream" from the FRB search
+  ../extern/pipmake           -> used in build system
+  ../extern/chord-frb-sifter  -> real-time code "downstream" from the FRB search
 
 CRITICAL: things not to do:
    - Do not git commit unless explicitly asked.

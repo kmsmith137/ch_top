@@ -40,62 +40,61 @@ git worktrees, with a small number (usually one) of LLM agents per worktree.
 ## Layout
 
 The toplevel clone and its feature worktrees live together as siblings inside a
-**grouping dir** -- any directory except `$HOME` itself (`~/ch` below; in this dev
-clone it is `~/docker`). `init_worktree.py` refuses to run if the toplevel sits
-directly in `$HOME`, since the sibling worktrees it creates would then land in
-`$HOME`. The grouping dir is also the agent's shared Claude config home
-(`CLAUDE_CONFIG_DIR`; see "Sandbox and GPU").
+**grouping dir** -- any directory except `$HOME` itself (call it `$CH`; `~/ch` in
+these examples, `~/docker` in this dev clone). `init-worktree` refuses to run if
+the toplevel sits directly in `$HOME`, since the sibling worktrees it creates
+would then land in `$HOME`.
 
-Base tree (toplevel = the `ch_dev` clone):
+Paths within the workspace are written **relative to the grouping dir** below: the
+grouping-dir name is arbitrary, relative paths read the same inside the sandbox
+container, and only fixed system/home paths (`~/.ssh`, `~/miniforge3`, ...) are
+absolute. Contents of `$CH`:
 ```
-  ~/ch/ch_dev/        -> plain clone pointed at github remote (main branch)
-  ~/ch/ch_dev/ksgpu   -> plain clone pointed at github remote (chord branch)
-  ~/ch/ch_dev/pirate  -> plain clone pointed at github remote (kms branch)
+  ch_dev/         -> plain clone (main branch)        [the "toplevel"]
+  ch_dev/ksgpu    -> plain clone (chord branch)
+  ch_dev/pirate   -> plain clone (kms branch)
+  ch_test/        -> a feature worktree of ch_dev (one per feature)
+  ch_test/ksgpu   -> git worktree of ch_dev/ksgpu
+  ch_test/pirate  -> git worktree of ch_dev/pirate
+  claude/         -> the sandboxed agent's CLAUDE_CONFIG_DIR (.claude.json,
+                     .credentials.json, projects/; per-group, see "Sandbox and GPU")
+  extern/         -> external reference source trees (pipmake, chord-frb-sifter)
 ```
-Worktree (named `ch_test` for concreteness):
-```
-  ~/ch/ch_test/          -> git worktree pointed at ~/ch/ch_dev
-  ~/ch/ch_test/ksgpu     -> git worktree pointed at ~/ch/ch_dev/ksgpu
-  ~/ch/ch_test/pirate    -> git worktree pointed at ~/ch/ch_dev/pirate
-```
-Plus, in the grouping dir, the agent's shared per-group Claude config under a
-`claude/` subdir: `~/ch/claude/.claude.json`, `~/ch/claude/.credentials.json`,
-`~/ch/claude/projects/`. We don't use git
-submodules or git subtrees.
+We don't use git submodules or git subtrees.
 
 ## Quick start
 
     # one-time, in a fresh ch_dev clone:
-    python3 init_toplevel.py                 # clone ksgpu+pirate, build ch_dev/.venv
+    ./init-toplevel                          # clone ksgpu+pirate, build ch_dev/.venv
     direnv allow .                           # activate ch_dev's venv
 
     # per feature:
-    python3 init_worktree.py ch_myfeature    # make ../ch_myfeature (worktrees + venv)
+    ./init-worktree ch_myfeature             # make ../ch_myfeature (worktrees + venv)
     cd ../ch_myfeature && direnv allow .
-    tmux new -s ch_myfeature && ./sbox-claude # run the sandboxed agent (claude in a container)
+    tmux new -s ch_myfeature && ./sbox-claude   # run the sandboxed agent (claude in a container)
 
-    # the two init_* scripts above build the .venv for you (via init_venv.py);
-    # run init_venv.py directly only to REBUILD an existing workspace's venv:
-    # python3 init_venv.py . --recreate      # e.g. after a dependency/build change
+    # the two init-* scripts above build the .venv for you;
+    # run init-venv directly only to REBUILD an existing workspace's venv:
+    # ./init-venv . --recreate               # e.g. after a dependency/build change
 
     # inspect all 3 repos at once (from any workspace):
-    ./git-status.py                          # status + per-worktree branch relations
-    ./git-diff.py [--stat|--cached|...]
+    ./git-status                             # status + per-worktree branch relations
+    ./git-diff [--stat|--cached|...]
 
     # move commits between feature and integration branches (all 3 repos);
     # both run from the worktree:
-    cd ../ch_myfeature && ./git-rebase-down.py   # sync down: rebase onto integration
-    cd ../ch_myfeature && ./git-merge-up.py      # land up: fast-forward integration
+    cd ../ch_myfeature && ./git-rebase-down  # sync down: rebase onto integration
+    cd ../ch_myfeature && ./git-merge-up     # land up: fast-forward integration
 
-    # tear down (after landing):
-    python3 ~/ch/ch_dev/delete_worktree.py ch_myfeature
+    # tear down (after landing; run from outside the worktree, e.g. the toplevel):
+    ~/ch/ch_dev/delete-worktree ch_myfeature
 
-This assumes the machine is already set up as described next. `init_*.py` are
+This assumes the machine is already set up as described next. `init-*` are
 idempotent and safe to re-run.
 
 ## One-time setup (per machine)
 
-The `init_*.py` scripts assume a machine prepared like this. Step 3 (Podman) is
+The `init-*` scripts assume a machine prepared like this. Step 3 (Podman) is
 only needed for the per-worktree agent sandbox -- skip it if you only use the
 unsandboxed toplevel.
 
@@ -105,7 +104,7 @@ unsandboxed toplevel.
   the GPU.
 - **`git` >= 2.40** and **SSH access to the GitHub repos**: the manifest clones
   via a `github:` host alias in `~/.ssh/config`, so have your key in an ssh-agent.
-  Needed so `init_toplevel.py` can clone, and so you can `git push`.
+  Needed so `init-toplevel` can clone, and so you can `git push`.
 - **rootless Podman** -- the per-worktree sandbox (step 3). On this host it works
   with no `/etc/subuid`, no `docker` group, and no root.
 - **`~/.local/bin` on `$PATH`, ahead of `/usr/bin`** -- `claude` and `direnv`
@@ -160,30 +159,33 @@ seccomp tweak, no `nvidia-container-toolkit`; see Appendix C.
 ## Scripts
 
 - `git_repositories.toml` -- manifest of repos + integration branches. The git
-  scripts are manifest-driven; **`init_venv.py` is not** -- its `BUILD` list is
-  separate, so when you add a repo, add it there too (see the reminder in the
-  manifest).
-- `init_toplevel.py` -- one-time: clone/checkout each repo, init submodules,
+  scripts are manifest-driven; **the venv build is not** -- the `BUILD` list (in
+  `ch_dev_helpers.py`) is separate, so when you add a repo, add it there too (see
+  the reminder in the manifest).
+- `init-toplevel` -- one-time: clone/checkout each repo, init submodules,
   build the `ch_dev` `.venv`. Idempotent.
-- `init_worktree.py NAME [--no-venv]` -- create `../NAME`: a worktree of ch_dev +
+- `init-worktree NAME [--no-venv]` -- create `../NAME`: a worktree of ch_dev +
   each repo (new branch NAME off each integration branch), render the dotfiles +
   the sandbox launcher, ensure the base image is present, build the `.venv`.
-- `init_venv.py [WORKDIR] [--recreate] [--test]` -- (re)build a workspace's
-  `.venv` overlay. Called by the two scripts above; also runnable standalone.
-- `delete_worktree.py NAME [--force]` -- tear a feature workspace down (keeps the
+- `init-venv [WORKDIR] [--recreate] [--test]` -- (re)build a workspace's `.venv`
+  overlay. A thin CLI wrapper around `ch_dev_helpers.build_venv()`, which
+  `init-toplevel`/`init-worktree` call directly; also runnable standalone.
+- `delete-worktree NAME [--force]` -- tear a feature workspace down (keeps the
   feature branches; `--force` overrides the dirty-tree check).
-- `git-status.py` / `git-diff.py [ARGS...]` -- run `git status` / `git diff`
+- `git-status` / `git-diff [ARGS...]` -- run `git status` / `git diff`
   across all 3 repos in the current workspace, under per-repo headers (extra args
-  pass through to git). `git-status.py` also prints how each worktree branch
+  pass through to git). `git-status` also prints how each worktree branch
   relates to its integration branch, e.g. `pirate/ch_evrb is 2 commits ahead of
   pirate/kms`.
-- `git-rebase-down.py [--dry-run]` -- in a WORKTREE: rebase this feature's branch
-  onto each repo's integration branch (sync down). `git-merge-up.py [--dry-run]
+- `git-rebase-down [--dry-run]` -- in a WORKTREE: rebase this feature's branch
+  onto each repo's integration branch (sync down). `git-merge-up [--dry-run]
   [--no-ff]` -- also in the WORKTREE: fast-forward this feature onto each repo's
   integration branch (land up; the merge itself runs in the toplevel checkout,
   where the integration branch lives). See "Branch workflow" below.
-- `ch_dev_helpers.py` -- shared helpers (manifest, paths, dotfile rendering,
-  the multi-repo git logic).
+- `ch_dev_helpers.py` -- shared helpers (manifest, paths, dotfile rendering, the
+  multi-repo git logic, and `build_venv`). Imported by the other scripts, so it
+  stays a `.py` module (the runnable entry-point scripts are hyphenated and
+  extension-less).
 - `sbox-claude` -- the rootless-Podman sandbox launcher: a tracked, machine-
   independent script you run from a feature worktree (`./sbox-claude`). It
   self-locates the worktree, inherits your shell's `PATH` + `CONDA_PREFIX`, reads
@@ -218,7 +220,7 @@ grouping dir there is no token yet, so run `/login` inside it once; every worktr
 in that grouping dir then shares the login. See Appendix D.
 
 **Committing.** A commit in a worktree is immediately part of each repo's shared
-history (no inter-worktree push). Commit per-repo as usual, or use `git-status.py`
+history (no inter-worktree push). Commit per-repo as usual, or use `git-status`
 to see all 3 at once. From inside the sandbox, `git commit` works without a
 prompt (Appendix E).
 
@@ -231,20 +233,20 @@ there (no branch-name argument):
 
     # sync down: rebase the feature branch onto latest integration, per repo.
     # Run whenever an integration branch has moved.
-    cd ~/ch/ch_<feature> && ./git-rebase-down.py        # --dry-run to preview
+    cd ~/ch/ch_<feature> && ./git-rebase-down        # --dry-run to preview
 
     # land up: fast-forward the feature onto each integration branch (only after
     # a clean rebase-down). The merge runs in the toplevel checkout, where the
     # integration branch is checked out -- the output shows that path.
-    cd ~/ch/ch_<feature> && ./git-merge-up.py           # --dry-run to preview
+    cd ~/ch/ch_<feature> && ./git-merge-up           # --dry-run to preview
 
-Both skip repos that need nothing (`git-status.py` shows which do). `--ff-only`
-(the default for `git-merge-up.py`) refuses rather than create a merge commit if
+Both skip repos that need nothing (`git-status` shows which do). `--ff-only`
+(the default for `git-merge-up`) refuses rather than create a merge commit if
 the integration branch moved since you rebased -- just rebase-down again and
 retry. Landing does NOT delete the worktree (worktrees are persistent here); if
 you do want to tear one down, run from the toplevel:
 
-    python3 ~/ch/ch_dev/delete_worktree.py ch_<feature>
+    ~/ch/ch_dev/delete-worktree ch_<feature>
 
 It refuses (in any of the 3 repos) if the worktree has uncommitted changes,
 stray untracked files, or commits not yet merged up -- then deletes each repo's
@@ -255,7 +257,7 @@ any unmerged branch.
 *Conflicts during rebase-down.* Rebase replays the feature's commits one at a
 time onto the integration branch, so a conflict stops at the FIRST offending
 commit (you may hit several in turn, one resolution each -- unlike merge's single
-combined resolution). `git-rebase-down.py` does not auto-resolve: it prints
+combined resolution). `git-rebase-down` does not auto-resolve: it prints
 git's conflict message, leaves that repo in the rebase-in-progress state, and
 exits non-zero (a conflict in one repo does NOT roll back repos that already
 rebased cleanly). Finish by hand, with plain git, in the repo it stopped in:
@@ -267,7 +269,7 @@ rebased cleanly). Finish by hand, with plain git, in the repo it stopped in:
     # or, to bail out completely (returns the branch to its pre-rebase state):
     git rebase --abort
 
-Do NOT re-run `./git-rebase-down.py` to resume -- it would try to start a fresh
+Do NOT re-run `./git-rebase-down` to resume -- it would try to start a fresh
 rebase, which git refuses mid-rebase. Use `git rebase --continue`/`--abort`
 directly. `git rebase --abort` is always safe: a rebase is fully undoable until
 it finishes, so it is safe to attempt one just to see the conflicts.
@@ -387,7 +389,7 @@ Three layers guard against this, so you normally never see it:
    for every Python invocation -- verified safe for the build too.
 2. `pirate_frb/__init__.py` detects the shadow and raises a clear, actionable
    error instead of the cryptic undefined-symbol crash.
-3. `init_venv.py` runs its smoke test from a throwaway directory.
+3. `build_venv` runs its smoke test from a throwaway directory.
 
 If you ever run Python in a shell WITHOUT the worktree env active (e.g. a bare
 login shell where direnv has not fired), either run from inside a repo dir
@@ -419,7 +421,7 @@ still runs `conda activate` inside, and `env.sh` layers the venv on top for each
 Bash command. Hence "launch from the worktree, in an activated shell":
 `./sbox-claude` self-locates the worktree and wires all of this up.
 
-The `init_*` scripts themselves also feel `PYTHONSAFEPATH=1`: once direnv has run
+The `init-*` scripts themselves also feel `PYTHONSAFEPATH=1`: once direnv has run
 in ch_dev, a bare `import ch_dev_helpers` would fail (the script dir is dropped
 from `sys.path`), so each entry-point script prepends its own directory to
 `sys.path` before importing.

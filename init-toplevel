@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """One-time setup of the main repo checkouts under ch_dev.
 
-    init_toplevel.py [--no-venv]
+    init-toplevel [--no-venv]
 
 For each repo in git_repositories.toml: clone it (if missing) into ch_dev/<name>,
 check out its branch, and init submodules. Then render ch_dev/.envrc and build
@@ -26,7 +26,6 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import ch_dev_helpers as wl
-import init_venv
 
 
 def setup_repo(name: str, url: str, branch: str) -> None:
@@ -58,7 +57,7 @@ def main() -> None:
     wl.render_dotfiles(wl.ROOT)
 
     if not args.no_venv:
-        init_venv.build(wl.ROOT)
+        wl.build_venv(wl.ROOT)
 
     wl.info("toplevel ready")
 

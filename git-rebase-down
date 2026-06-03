@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rebase this feature worktree's branch onto its integration branch, in each repo.
 
-    git-rebase-down.py [--dry-run] [-- GIT_REBASE_ARGS...]
+    git-rebase-down [--dry-run] [-- GIT_REBASE_ARGS...]
 
 For each repo in this workspace (ch_dev, ksgpu, pirate), rebase the branch
 checked out HERE (the feature branch, e.g. ch_evrb) onto that repo's integration
@@ -10,7 +10,7 @@ This is the "sync down" half of the rebase-then-fast-forward workflow: it brings
 the feature branch up to date with the integration branch, keeping history linear.
 
 Run this from a feature WORKTREE (it FAILS in the toplevel ch_dev -- there is no
-feature branch to rebase there; use git-merge-up.py to land instead). Repos
+feature branch to rebase there; use git-merge-up to land instead). Repos
 already up to date are skipped. Extra args after `--` pass through to git rebase
 (e.g. `-i`). On a conflict, git stops as usual; resolve in that repo, then
 `git rebase --continue`. Exits non-zero if any repo's rebase fails.
@@ -40,9 +40,9 @@ def main() -> None:
     args = ap.parse_args()
 
     if wl.is_toplevel():
-        wl.die("git-rebase-down.py must be run from a feature worktree, not the "
+        wl.die("git-rebase-down must be run from a feature worktree, not the "
                "toplevel ch_dev (the toplevel has no feature branch to rebase -- "
-               "use git-merge-up.py to land a feature instead).")
+               "use git-merge-up to land a feature instead).")
 
     specs = []
     for repo, path, integ, branch in wl.repo_branch_info():

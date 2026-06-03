@@ -2,11 +2,11 @@
 """`git status` across all repos in a ch_dev workspace, plus a branch-relation
 summary.
 
-    git-status.py [GIT_STATUS_ARGS...]
+    git-status [GIT_STATUS_ARGS...]
 
 Runs `git status` in the workspace root (ch_dev / ch_<feature>) and in each
 manifest repo subdir (ksgpu, pirate, ...), under a per-repo header. Extra args
-are passed through to git, e.g. `git-status.py -s` or `git-status.py -sb`.
+are passed through to git, e.g. `git-status -s` or `git-status -sb`.
 
 Then prints, for each repo, how the feature-worktree branch relates to that
 repo's integration branch (the one checked out in the main worktree), e.g.
