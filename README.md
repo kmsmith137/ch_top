@@ -201,7 +201,9 @@ seccomp tweak, no `nvidia-container-toolkit`; see Appendix C.
 - `sandbox/` -- editable policy, read at every launch from the TOPLEVEL ch_dev (so
   edits apply to every worktree in the group, no re-render): `allow.txt` (the
   default-deny filesystem allowlist -- `ro`/`rw <path>`; unlisted paths are absent
-  in the container), `devices.txt` (device nodes; default: all GPUs), and
+  in the container), `devices.txt` (device nodes; default: all GPUs),
+  `env-allow.txt` (preference env vars -- editor, locale, pager, ... -- forwarded
+  by name from your launching shell; structural/secret vars are not), and
   `net-allow.txt` / `net-deny.txt` (the egress domain allow/deny lists used by
   `sbox-net`). See Appendices C-F.
 

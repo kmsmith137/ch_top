@@ -1,0 +1,44 @@
+# Environment variables forwarded into the sandbox, BY NAME, from the shell you
+# launch ./sbox-claude in. One variable name per line; each is forwarded with its
+# current value ONLY if it is set in your shell (unset names are skipped). #
+# comments and blank lines are ignored. Read at every launch and shared by every
+# worktree in the group, like the other sandbox/ lists.
+#
+# In addition to the env variables in this file, the 'sbox-claude' scripts
+# also sets up the "structural" variables:
+#
+#   - PATH, HOME, LD_LIBRARY_PATH
+#   - CONDA_PREFIX, VIRUTAL_ENV
+#   - CLAUDE_CONFIG_DIR, CLAUDE_ENV_FILE
+#   - HTTP(S)_PROXY vars
+#
+# This is for PREFERENCE / display vars (editor, locale, pager, terminal). We
+# forward a curated allowlist by name -- NOT your whole environment, which would
+# copy any secrets/tokens in your shell into the sandbox. So:
+#   - Do NOT list secret-bearing vars here (API keys, *_TOKEN, AWS_*, ...).
+#   - Do NOT list "structural" vars that wire up the sandbox (see above).
+#     Listing them here is ignored (with a warning), so a stray entry can't
+#     clobber the venv/proxy.
+#
+# The matching binary must also be reachable in the container, i.e. on PATH via
+# the read-only /usr + conda mounts -- e.g. EDITOR=emacs works because conda's
+# emacs lives under ~/miniforge3, which is mounted.
+
+# --- editor (claude's Ctrl-G external edit, git commit messages) ---
+EDITOR
+VISUAL
+GIT_EDITOR
+
+# --- pager ---
+PAGER
+GIT_PAGER
+
+# --- terminal / color ---
+TERM
+COLORTERM
+
+# --- locale / time ---
+LANG
+LC_ALL
+LC_CTYPE
+TZ
