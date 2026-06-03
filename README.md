@@ -204,7 +204,7 @@ seccomp tweak, no `nvidia-container-toolkit`; see Appendix C.
 - `dotfile_templates/` -- source templates for `.envrc` and `.claude/env.sh`
   (venv activation); `render_dotfiles` substitutes `{{WORKTREE}}`.
 - `sandbox/` -- editable policy, read at every launch from the TOPLEVEL top (so
-  edits apply to every worktree in the group, no re-render): `allow.txt` (the
+  edits apply to every worktree in the group, no re-render): `fs-allow.txt` (the
   default-deny filesystem allowlist -- `ro`/`rw <path>`; unlisted paths are absent
   in the container), `devices.txt` (device nodes; default: all GPUs),
   `env-allow.txt` (preference env vars -- editor, locale, pager, ... -- forwarded
@@ -304,7 +304,7 @@ with **zero permission prompts**, and escaping is not possible. The mount
 manifest IS the security model:
 
 - **Allowlist (default-deny)** -- the container mounts ONLY the paths in
-  `sandbox/allow.txt` (`ro`/`rw <path>`): the system dirs it needs (`/usr`, `/etc`,
+  `sandbox/fs-allow.txt` (`ro`/`rw <path>`): the system dirs it needs (`/usr`, `/etc`,
   `/var`, ...) plus your toolchain (`~/miniforge3`, `~/.local`, ...), all read-only.
   Everything else -- your other projects, data, and unlisted secrets -- is simply
   **absent**. The single-id userns also caps any read at your account (host-root
@@ -314,7 +314,7 @@ manifest IS the security model:
   `.git` (Appendix E). On top, the policy lists (`sandbox/*.txt`) and each `.git`'s
   `config`+`hooks/` are re-pinned `:ro`, so the agent can't rewrite its own jail or
   plant code that runs in your unsandboxed shell. Add extra writable paths with
-  `rw <path>` lines in `allow.txt`; files are owned by you on the host.
+  `rw <path>` lines in `fs-allow.txt`; files are owned by you on the host.
 - **Auth (per group)** -- `CLAUDE_CONFIG_DIR` points at `<grouping dir>/claude`, so
   the agent's `.claude.json`, OAuth token, and transcripts live in `~/ch/claude/`,
   shared by every worktree in the group and separate from your personal `~/.claude`
@@ -507,12 +507,12 @@ history is not.
 namespace and your supplementary-group reads (`chord-dev`, ...). Fine on a trusted
 single-user box; not a defense against a kernel-exploit-grade adversary.
 
-**Default-deny filesystem.** Only the paths in `sandbox/allow.txt` are mounted;
+**Default-deny filesystem.** Only the paths in `sandbox/fs-allow.txt` are mounted;
 everything else is simply absent in the container (not even an empty placeholder).
 Your secrets and unrelated files are invisible because they were never mounted --
 not because of a mask you have to remember to add. The flip side: it fails CLOSED,
 so a path the toolchain needs but you forgot to list shows up as a missing-file
-error -- add it to `allow.txt`.
+error -- add it to `fs-allow.txt`.
 
 **The base image must track the host distro** (host `/usr` is overlaid); bump the
 `IMAGE=` line in `sbox-claude` on a host upgrade and re-verify GPU + a build.
