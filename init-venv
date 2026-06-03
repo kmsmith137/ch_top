@@ -3,9 +3,9 @@
 
     init-venv [WORKDIR] [--recreate] [--test]
 
-A thin CLI wrapper around ch_dev_helpers.build_venv(). WORKDIR defaults to the
-ch_dev root. The build recipe (and the BUILD list of repos) lives in
-ch_dev_helpers so init-toplevel / init-worktree can call it in-process; run this
+A thin CLI wrapper around ch_top_helpers.build_venv(). WORKDIR defaults to the
+top root. The build recipe (and the BUILD list of repos) lives in
+ch_top_helpers so init-toplevel / init-worktree can call it in-process; run this
 script directly to (re)build an existing workspace's venv. See README.md.
 """
 from __future__ import annotations
@@ -16,17 +16,17 @@ import sys
 
 # Put this script's own directory on sys.path before the local import below.
 # The worktree .envrc exports PYTHONSAFEPATH=1 (cwd-shadowing guard), which drops
-# the script dir from sys.path -- so once direnv has run in ch_dev, a bare
-# `import ch_dev_helpers` would fail with ModuleNotFoundError. See README.md.
+# the script dir from sys.path -- so once direnv has run in top, a bare
+# `import ch_top_helpers` would fail with ModuleNotFoundError. See README.md.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import ch_dev_helpers as wl
+import ch_top_helpers as wl
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Build a workspace .venv overlay.")
     ap.add_argument("workdir", nargs="?", default=str(wl.ROOT),
-                    help="workspace dir (default: ch_dev root)")
+                    help="workspace dir (default: top root)")
     ap.add_argument("--recreate", action="store_true",
                     help="delete and rebuild .venv from scratch")
     ap.add_argument("--test", action="store_true",

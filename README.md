@@ -1,4 +1,4 @@
-# ch_dev -- personal multi-repo, multi-agent dev workspace
+# ch_top -- personal multi-repo, multi-agent dev workspace
 
 ## Introduction
 
@@ -9,7 +9,7 @@ git worktrees, with a small number (usually one) of LLM agents per worktree.
  - Orchestration scripts for creating/deleting worktrees with pre-initialized
    dotfiles (`.envrc`, `.claude/*`), and moving commits around.
  
- - Allows multiple git repos in each worktree (currently `ch_dev`, `pipmake`, `ksgpu`, `pirate`).
+ - Allows multiple git repos in each worktree (currently `ch_top`, `pipmake`, `ksgpu`, `pirate`).
  
  - Each worktree has its own venv, which is automatically activated/deactivated.
    (For humans, this is done with `direnv`. For LLMs, this is done with `.claude/*`.)
@@ -17,8 +17,8 @@ git worktrees, with a small number (usually one) of LLM agents per worktree.
  - Sandboxing: per-worktree agents run inside a rootless-Podman container
    (launched with `./sbox-claude`) under `--dangerously-skip-permissions`, so they
    do real work -- including GPU compute -- with no permission prompts, while
-   being unable to read your secrets or escape the container. (The "top-level"
-   ch_dev agent(s) aren't containerized, only the agents that run in worktrees.)
+   being unable to read your secrets or escape the container. (The toplevel
+   agent(s) in `top` aren't containerized, only the agents that run in worktrees.)
 
 ## Contents
 
@@ -41,39 +41,42 @@ git worktrees, with a small number (usually one) of LLM agents per worktree.
 
 The toplevel clone and its feature worktrees live together as siblings inside a
 **grouping dir** -- any directory except `$HOME` itself (call it `$CH`; `~/ch` in
-these examples, `~/docker` in this dev clone). `init-worktree` refuses to run if
-the toplevel sits directly in `$HOME`, since the sibling worktrees it creates
-would then land in `$HOME`.
+these examples). `init-worktree` refuses to run if the toplevel sits directly in
+`$HOME`, since the sibling worktrees it creates would then land in `$HOME`.
 
 Paths within the workspace are written **relative to the grouping dir** below: the
 grouping-dir name is arbitrary, relative paths read the same inside the sandbox
 container, and only fixed system/home paths (`~/.ssh`, `~/miniforge3`, ...) are
-absolute. Contents of `$CH`:
+absolute. The container repo is `ch_top`, cloned into the toplevel dir `top`.
+Contents of `$CH`:
 ```
-  ch_dev/         -> plain clone (main branch)        [the "toplevel"]
-  ch_dev/pipmake  -> plain clone (main branch)
-  ch_dev/ksgpu    -> plain clone (chord branch)
-  ch_dev/pirate   -> plain clone (kms branch)
-  ch_test/        -> a feature worktree of ch_dev (one per feature)
-  ch_test/pipmake -> git worktree of ch_dev/pipmake
-  ch_test/ksgpu   -> git worktree of ch_dev/ksgpu
-  ch_test/pirate  -> git worktree of ch_dev/pirate
-  claude/         -> the sandboxed agent's CLAUDE_CONFIG_DIR (.claude.json,
-                     .credentials.json, projects/; per-group, see "Sandbox and GPU")
-  extern/         -> external reference source trees (chord-frb-sifter)
+  top/         -> plain clone of ch_top (main branch)  [the "toplevel"]
+  top/pipmake  -> plain clone (main branch)
+  top/ksgpu    -> plain clone (chord branch)
+  top/pirate   -> plain clone (kms branch)
+  dev/         -> a feature worktree of top (one per feature)
+  dev/pipmake  -> git worktree of top/pipmake
+  dev/ksgpu    -> git worktree of top/ksgpu
+  dev/pirate   -> git worktree of top/pirate
+  claude/      -> the sandboxed agent's CLAUDE_CONFIG_DIR (.claude.json,
+                  .credentials.json, projects/; per-group, see "Sandbox and GPU")
+  extern/      -> external reference source trees (chord-frb-sifter)
 ```
 We don't use git submodules or git subtrees.
 
 ## Quick start
 
-    # one-time, in a fresh ch_dev clone:
-    ./init-toplevel                          # clone pipmake+ksgpu+pirate, build ch_dev/.venv
-    direnv allow .                           # activate ch_dev's venv
+    # one-time: make the grouping dir and clone the container repo into ./top:
+    mkdir ~/ch && cd ~/ch
+    git clone github:kmsmith137/ch_top top   # ch_top -> the toplevel dir 'top'
+    cd top
+    ./init-toplevel                          # clone pipmake+ksgpu+pirate, build top/.venv
+    direnv allow .                           # activate top's venv
 
-    # per feature:
-    ./init-worktree ch_myfeature             # make ../ch_myfeature (worktrees + venv)
-    cd ../ch_myfeature && direnv allow .
-    tmux new -s ch_myfeature && ./sbox-claude   # run the sandboxed agent (claude in a container)
+    # per feature (run from the toplevel ~/ch/top):
+    ./init-worktree dev                      # make ../dev (worktrees + venv)
+    cd ../dev && direnv allow .
+    tmux new -s dev && ./sbox-claude         # run the sandboxed agent (claude in a container)
 
     # the two init-* scripts above build the .venv for you;
     # run init-venv directly only to REBUILD an existing workspace's venv:
@@ -85,11 +88,11 @@ We don't use git submodules or git subtrees.
 
     # move commits between feature and integration branches (all 4 repos);
     # both run from the worktree:
-    cd ../ch_myfeature && ./git-rebase-down  # sync down: rebase onto integration
-    cd ../ch_myfeature && ./git-merge-up     # land up: fast-forward integration
+    cd ../dev && ./git-rebase-down           # sync down: rebase onto integration
+    cd ../dev && ./git-merge-up              # land up: fast-forward integration
 
     # tear down (after landing; run from outside the worktree, e.g. the toplevel):
-    ~/ch/ch_dev/delete-worktree ch_myfeature
+    ~/ch/top/delete-worktree dev
 
 This assumes the machine is already set up as described next. `init-*` are
 idempotent and safe to re-run.
@@ -121,7 +124,7 @@ authoritative list is in `ksgpu/README.md` and `pirate/notes/install.md`; roughl
       grpc-cpp grpcio grpcio-tools protoletariat \
       cupy mathdx pybind11 yaml-cpp asdf argcomplete setuptools=80
 
-Nothing in ch_dev names this env; the scripts seed each `.venv` from whatever
+Nothing in ch_top names this env; the scripts seed each `.venv` from whatever
 `python` is active (and the sandbox launcher bakes in the active `CONDA_PREFIX`).
 Activate it in `~/.bashrc`:
 
@@ -137,7 +140,7 @@ Add the hook to `~/.bashrc`, AFTER the `conda activate` line:
 
     eval "$(direnv hook bash)"
 
-Each worktree's `.envrc` then needs a one-time `direnv allow ~/ch/ch_<feature>`.
+Each worktree's `.envrc` then needs a one-time `direnv allow ~/ch/<feature>`.
 
 **3. Sandbox (rootless Podman)** (optional). The per-worktree agent runs inside a
 rootless-Podman container. On this host Podman needs no special setup -- no
@@ -162,29 +165,29 @@ seccomp tweak, no `nvidia-container-toolkit`; see Appendix C.
 
 - `git_repositories.toml` -- manifest of repos + integration branches. The git
   scripts are manifest-driven; **the venv build is not** -- the `BUILD` list (in
-  `ch_dev_helpers.py`) is separate, so when you add a repo, add it there too (see
+  `ch_top_helpers.py`) is separate, so when you add a repo, add it there too (see
   the reminder in the manifest).
 - `init-toplevel` -- one-time: clone/checkout each repo, init submodules,
-  build the `ch_dev` `.venv`. Idempotent.
-- `init-worktree NAME [--no-venv]` -- create `../NAME`: a worktree of ch_dev +
+  build the `top` `.venv`. Idempotent.
+- `init-worktree NAME [--no-venv]` -- create `../NAME`: a worktree of top +
   each repo (new branch NAME off each integration branch), render the dotfiles +
   the sandbox launcher, ensure the base image is present, build the `.venv`.
 - `init-venv [WORKDIR] [--recreate] [--test]` -- (re)build a workspace's `.venv`
-  overlay. A thin CLI wrapper around `ch_dev_helpers.build_venv()`, which
+  overlay. A thin CLI wrapper around `ch_top_helpers.build_venv()`, which
   `init-toplevel`/`init-worktree` call directly; also runnable standalone.
 - `delete-worktree NAME [--force]` -- tear a feature workspace down (keeps the
   feature branches; `--force` overrides the dirty-tree check).
 - `git-status` / `git-diff [ARGS...]` -- run `git status` / `git diff`
   across all 4 repos in the current workspace, under per-repo headers (extra args
   pass through to git). `git-status` also prints how each worktree branch
-  relates to its integration branch, e.g. `pirate/ch_evrb is 2 commits ahead of
+  relates to its integration branch, e.g. `pirate/dev is 2 commits ahead of
   pirate/kms`.
 - `git-rebase-down [--dry-run]` -- in a WORKTREE: rebase this feature's branch
   onto each repo's integration branch (sync down). `git-merge-up [--dry-run]
   [--no-ff]` -- also in the WORKTREE: fast-forward this feature onto each repo's
   integration branch (land up; the merge itself runs in the toplevel checkout,
   where the integration branch lives). See "Branch workflow" below.
-- `ch_dev_helpers.py` -- shared helpers (manifest, paths, dotfile rendering, the
+- `ch_top_helpers.py` -- shared helpers (manifest, paths, dotfile rendering, the
   multi-repo git logic, and `build_venv`). Imported by the other scripts, so it
   stays a `.py` module (the runnable entry-point scripts are hyphenated and
   extension-less).
@@ -200,7 +203,7 @@ seccomp tweak, no `nvidia-container-toolkit`; see Appendix C.
   "Egress proxy".
 - `dotfile_templates/` -- source templates for `.envrc` and `.claude/env.sh`
   (venv activation); `render_dotfiles` substitutes `{{WORKTREE}}`.
-- `sandbox/` -- editable policy, read at every launch from the TOPLEVEL ch_dev (so
+- `sandbox/` -- editable policy, read at every launch from the TOPLEVEL top (so
   edits apply to every worktree in the group, no re-render): `allow.txt` (the
   default-deny filesystem allowlist -- `ro`/`rw <path>`; unlisted paths are absent
   in the container), `devices.txt` (device nodes; default: all GPUs),
@@ -211,10 +214,10 @@ seccomp tweak, no `nvidia-container-toolkit`; see Appendix C.
 
 ## Daily workflow
 
-**Run the agent from inside the worktree.** `cd ~/ch/ch_<feature>` (direnv fires,
+**Run the agent from inside the worktree.** `cd ~/ch/<feature>` (direnv fires,
 activating the venv and exporting `CLAUDE_ENV_FILE`), then `./sbox-claude`. This
 launches `claude` inside the worktree's rootless-Podman sandbox; inside it,
-`which python` -> `~/ch/ch_<feature>/.venv/bin/python`. Launching from elsewhere
+`which python` -> `~/ch/<feature>/.venv/bin/python`. Launching from elsewhere
 breaks venv activation for the agent (Appendix A/B). To get an *unsandboxed* shell
 in the worktree instead, run plain `claude`.
 
@@ -229,7 +232,7 @@ to see all 4 at once. From inside the sandbox, `git commit` works without a
 prompt (Appendix E).
 
 **Branch workflow (rebase-then-fast-forward).** Each feature is the same branch
-name across all 4 repos; the integration branches are `main` (ch_dev, pipmake),
+name across all 4 repos; the integration branches are `main` (top, pipmake),
 `chord` (ksgpu), `kms` (pirate). Two
 helpers move commits between a feature branch and its integration branch, keeping
 history linear (feature commits land individually, no merge bubbles). BOTH run
@@ -238,12 +241,12 @@ there (no branch-name argument):
 
     # sync down: rebase the feature branch onto latest integration, per repo.
     # Run whenever an integration branch has moved.
-    cd ~/ch/ch_<feature> && ./git-rebase-down        # --dry-run to preview
+    cd ~/ch/<feature> && ./git-rebase-down        # --dry-run to preview
 
     # land up: fast-forward the feature onto each integration branch (only after
     # a clean rebase-down). The merge runs in the toplevel checkout, where the
     # integration branch is checked out -- the output shows that path.
-    cd ~/ch/ch_<feature> && ./git-merge-up           # --dry-run to preview
+    cd ~/ch/<feature> && ./git-merge-up           # --dry-run to preview
 
 Both skip repos that need nothing (`git-status` shows which do). `--ff-only`
 (the default for `git-merge-up`) refuses rather than create a merge commit if
@@ -251,7 +254,7 @@ the integration branch moved since you rebased -- just rebase-down again and
 retry. Landing does NOT delete the worktree (worktrees are persistent here); if
 you do want to tear one down, run from the toplevel:
 
-    ~/ch/ch_dev/delete-worktree ch_<feature>
+    ~/ch/top/delete-worktree <feature>
 
 It refuses (in any of the 4 repos) if the worktree has uncommitted changes,
 stray untracked files, or commits not yet merged up -- then deletes each repo's
@@ -267,7 +270,7 @@ git's conflict message, leaves that repo in the rebase-in-progress state, and
 exits non-zero (a conflict in one repo does NOT roll back repos that already
 rebased cleanly). Finish by hand, with plain git, in the repo it stopped in:
 
-    cd ~/ch/ch_<feature>/<repo>         # the repo named in the error
+    cd ~/ch/<feature>/<repo>         # the repo named in the error
     # edit the conflicted files (look for <<<<<<< markers), then:
     git add <resolved-files>
     git rebase --continue            # replays the next commit; repeat if it conflicts
@@ -287,7 +290,7 @@ only; you `git push` / `git fetch` from your own shell when ready. (Network egre
 itself is open inside the container -- Model B needs it for the Anthropic API; see
 Appendix D.)
 
-**The toplevel `ch_dev` is intentionally NOT containerized** -- it is where you
+**The toplevel `top` is intentionally NOT containerized** -- it is where you
 run these management scripts, which must write outside their own directory (clone
 repos, create sibling worktrees). Feature worktrees ARE sandboxed.
 
@@ -427,7 +430,7 @@ Bash command. Hence "launch from the worktree, in an activated shell":
 `./sbox-claude` self-locates the worktree and wires all of this up.
 
 The `init-*` scripts themselves also feel `PYTHONSAFEPATH=1`: once direnv has run
-in ch_dev, a bare `import ch_dev_helpers` would fail (the script dir is dropped
+in top, a bare `import ch_top_helpers` would fail (the script dir is dropped
 from `sys.path`), so each entry-point script prepends its own directory to
 `sys.path` before importing.
 
@@ -510,8 +513,8 @@ error -- add it to `allow.txt`.
 # Appendix E: `git commit` from a worktree (shared .git)
 
 A commit in a feature worktree writes to each repo's SHARED `.git` common-dir,
-which in this nested layout lives in the main checkout (`ch_dev/.git`,
-`ch_dev/ksgpu/.git`, `ch_dev/pirate/.git`) -- OUTSIDE the worktree, so under the
+which in this nested layout lives in the main checkout (`top/.git`,
+`top/ksgpu/.git`, `top/pirate/.git`) -- OUTSIDE the worktree, so under the
 container's read-only base it would be read-only and the commit would fail.
 
 The shared `.git` stores sit inside the grouping dir, which the launcher mounts
@@ -530,7 +533,7 @@ fs). Note the residual (also in Appendix D): the agent can write the shared obje
 store and refs, so it could in principle rewrite refs/history of the main
 checkouts -- `config`/`hooks` are protected, history is not.
 
-For the toplevel `ch_dev` checkout, `.git` is inside the dir (and the toplevel is
+For the toplevel `top` checkout, `.git` is inside the dir (and the toplevel is
 not containerized anyway), so there is nothing to bind.
 
 # Appendix F: richer egress-approval options (B-D, not implemented)

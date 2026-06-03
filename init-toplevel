@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""One-time setup of the main repo checkouts under ch_dev.
+"""One-time setup of the main repo checkouts under top.
 
     init-toplevel [--no-venv]
 
-For each repo in git_repositories.toml: clone it (if missing) into ch_dev/<name>,
-check out its branch, and init submodules. Then render ch_dev/.envrc and build
-the ch_dev .venv. Idempotent: existing clones are left in place (only submodules
+For each repo in git_repositories.toml: clone it (if missing) into top/<name>,
+check out its branch, and init submodules. Then render top/.envrc and build
+the top .venv. Idempotent: existing clones are left in place (only submodules
 are refreshed; a branch mismatch is warned about, not changed).
 
-The toplevel ch_dev is your *unsandboxed* management workspace (you run these
+The toplevel top is your *unsandboxed* management workspace (you run these
 scripts here, and they must write outside the dir); it renders only .envrc +
 .claude/env.sh for venv activation. (The sandbox launcher ./sbox-claude is a
 tracked script and refuses to run from the toplevel anyway.)
@@ -21,11 +21,11 @@ import sys
 
 # Put this script's own directory on sys.path before the local imports below.
 # The worktree .envrc exports PYTHONSAFEPATH=1 (cwd-shadowing guard), which drops
-# the script dir from sys.path -- so once direnv has run in ch_dev, a bare
-# `import ch_dev_helpers` would fail with ModuleNotFoundError. See README.md.
+# the script dir from sys.path -- so once direnv has run in top, a bare
+# `import ch_top_helpers` would fail with ModuleNotFoundError. See README.md.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import ch_dev_helpers as wl
+import ch_top_helpers as wl
 
 
 def setup_repo(name: str, url: str, branch: str) -> None:
@@ -46,9 +46,9 @@ def setup_repo(name: str, url: str, branch: str) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Set up the main ch_dev checkouts.")
+    ap = argparse.ArgumentParser(description="Set up the main top checkouts.")
     ap.add_argument("--no-venv", action="store_true",
-                    help="clone + submodules only; skip building the ch_dev venv")
+                    help="clone + submodules only; skip building the top venv")
     args = ap.parse_args()
 
     for name, cfg in wl.load_manifest().items():

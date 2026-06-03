@@ -3,7 +3,7 @@
 #
 # Read by sbox-claude at every launch -- edit freely;
 # changes take effect on the next launch, for all worktrees, with no re-render.
-# (The launcher reads this copy from the TOPLEVEL ch_dev, so edit it there.)
+# (The launcher reads this copy from the TOPLEVEL top, so edit it there.)
 #
 # Syntax: one path or glob per line. Globs are expanded and only existing
 # CHARACTER devices are passed, so the /dev/nvidia-caps directory is skipped

@@ -1,6 +1,6 @@
-"""Shared helpers for the ch_dev workspace scripts.
+"""Shared helpers for the ch_top workspace scripts.
 
-ch_dev is a personal multi-repo workspace. The inner repos (ksgpu, pirate, ...)
+ch_top is a personal multi-repo workspace. The inner repos (ksgpu, pirate, ...)
 are plain clones listed in git_repositories.toml; feature workspaces are git
 worktrees. See README.md and plans/multi_agent_workspace.md for the design.
 
@@ -19,7 +19,7 @@ import tempfile
 import tomllib
 from pathlib import Path
 
-# Root of the ch_dev checkout = the directory containing these scripts.
+# Root of the top checkout = the directory containing these scripts.
 ROOT = Path(__file__).resolve().parent
 MANIFEST = ROOT / "git_repositories.toml"
 TEMPLATES = ROOT / "dotfile_templates"
@@ -31,7 +31,7 @@ def die(msg: str):
 
 
 def info(msg: str) -> None:
-    print(f"[ch_dev] {msg}")
+    print(f"[ch_top] {msg}")
 
 
 def warn(msg: str) -> None:
@@ -77,7 +77,7 @@ def workspace_repos(workdir=ROOT):
     """Ordered (label, path) for every git repo in a workspace.
 
     The workspace root itself comes first (labelled by its own dirname, e.g.
-    'ch_dev' or 'ch_evrb'), then each manifest repo subdir that exists ('ksgpu',
+    'top' or 'dev'), then each manifest repo subdir that exists ('ksgpu',
     'pirate', ...). Subdirs that are missing (workspace not fully set up) are
     skipped rather than erroring.
     """
@@ -123,8 +123,8 @@ def run_git_each(specs, *, dry_run=False):
 def run_git_all(git_args, workdir=ROOT) -> int:
     """Run `git <git_args>` in each workspace repo, under a per-repo header.
 
-    Headers read `<workspace>/<repo>`, e.g. `ch_evrb/pirate` -- the workspace dir
-    this is run from, and the repo identity (ch_dev / ksgpu / pirate). Returns
+    Headers read `<workspace>/<repo>`, e.g. `dev/pirate` -- the workspace dir
+    this is run from, and the repo identity (top / ksgpu / pirate). Returns
     the worst (max) git exit code.
     """
     ws = Path(workdir).resolve().name
@@ -135,7 +135,7 @@ def run_git_all(git_args, workdir=ROOT) -> int:
 
 
 def is_toplevel(workdir=ROOT) -> bool:
-    """True if workdir is the toplevel ch_dev checkout (its .git is a directory),
+    """True if workdir is the toplevel top checkout (its .git is a directory),
     False if it is a linked worktree (its .git is a file)."""
     return (Path(workdir) / ".git").is_dir()
 
@@ -144,8 +144,8 @@ def require_grouping_dir(toplevel=ROOT) -> None:
     """Die unless the toplevel lives in a grouping dir, not directly in $HOME.
 
     Feature worktrees are created as SIBLINGS of the toplevel (../NAME), so the
-    toplevel must be nested at least one level below $HOME -- e.g. ~/ch/ch_dev,
-    not ~/ch_dev -- otherwise the worktrees would land directly in $HOME. The
+    toplevel must be nested at least one level below $HOME -- e.g. ~/ch/top,
+    not ~/top -- otherwise the worktrees would land directly in $HOME. The
     intermediate "grouping" dir (~/ch here) holds a toplevel together with all
     its worktrees. See README.md "Layout".
     """
@@ -179,7 +179,7 @@ def branch_exists(repo_path, branch) -> bool:
 def repo_branch_info(workdir=ROOT):
     """[(repo_name, path, integration_branch, current_branch)] for each repo.
 
-    repo_name is the repo identity (ch_dev / ksgpu / pirate), taken from the
+    repo_name is the repo identity (top / ksgpu / pirate), taken from the
     main-worktree dirname; path is THIS workspace's checkout of it;
     integration_branch is the branch checked out in that repo's main worktree
     (main / chord / kms); current_branch is what `path` has checked out.
@@ -197,7 +197,7 @@ def repo_branch_info(workdir=ROOT):
 def repo_main_path(repo_path):
     """The main-worktree path of repo_path's repository -- where the integration
     branch (main/chord/kms) is checked out. For a worktree checkout this points
-    back into the toplevel (e.g. ~/ch/ch_evrb/pirate -> ~/ch/ch_dev/pirate); for
+    back into the toplevel (e.g. ~/ch/dev/pirate -> ~/ch/top/pirate); for
     the toplevel checkout it is repo_path itself."""
     wts = _parse_worktrees(repo_path)
     return wts[0][0] if wts else Path(repo_path).resolve()
@@ -252,22 +252,22 @@ def branch_relations(workdir=ROOT):
     integration branch (the branch checked out in that repo's main worktree).
 
     For each repo in the workspace, X = the main-worktree branch (main/chord/kms)
-    and Y = a feature-worktree branch. Run from the toplevel ch_dev, covers every
+    and Y = a feature-worktree branch. Run from the toplevel top, covers every
     feature worktree of every repo; run from a feature worktree, only that
     worktree's own branch. Returns formatted strings like
-    'ch_evrb/pirate is 2 commits ahead of ch_dev/pirate (kms branch)' --
+    'dev/pirate is 2 commits ahead of top/pirate (kms branch)' --
     '<branch>/<repo>' vs '<toplevel-workspace>/<repo> (<integration-branch> branch)'.
 
-    Lines are grouped by feature branch (all of ch_evrb's repos, then all of
-    ch_misc's, ...), each group in repo order (ch_dev, ksgpu, pirate), with an
+    Lines are grouped by feature branch (all of dev's repos, then all of
+    test's, ...), each group in repo order (top, ksgpu, pirate), with an
     empty string between groups so callers print a blank line between them.
     """
     workdir = Path(workdir).resolve()
     toplevel = (workdir / ".git").is_dir()
     # The toplevel workspace name is the container repo's main-worktree dirname
-    # (e.g. 'ch_dev'). workspace_repos lists the container repo first.
+    # (e.g. 'top'). workspace_repos lists the container repo first.
     repos = workspace_repos(workdir)
-    top_ws = _parse_worktrees(repos[0][1])[0][0].name if repos else "ch_dev"
+    top_ws = _parse_worktrees(repos[0][1])[0][0].name if repos else "top"
     # Collect lines per feature branch, preserving first-seen branch order and
     # repo order (repos are iterated in workspace_repos order).
     by_branch = {}  # branch -> [line, ...]
@@ -276,7 +276,7 @@ def branch_relations(workdir=ROOT):
         if not wts or wts[0][1] is None:
             continue  # repo with a detached main worktree -- nothing to compare to
         main_path, base = wts[0]
-        repo = main_path.name             # repo identity: ch_dev / ksgpu / pirate
+        repo = main_path.name             # repo identity: top / ksgpu / pirate
         if toplevel:
             targets = [(p, b) for p, b in wts[1:] if b is not None]
         else:

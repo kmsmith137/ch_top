@@ -5,7 +5,7 @@
 # masking needed; this replaces the old deny.txt). Read by sbox-claude at every
 # launch -- edit freely; changes take effect on the next launch, for every
 # worktree in the group, with no re-render. (sbox-claude reads this copy from the
-# TOPLEVEL ch_dev and mounts it read-only, so the agent cannot edit it.)
+# TOPLEVEL top and mounts it read-only, so the agent cannot edit it.)
 #
 # Format: "<mode> <path>" per line, mode = ro (read-only) or rw (read-write).
 # A leading ~ / $HOME expands to your home dir; $CH expands to the grouping dir

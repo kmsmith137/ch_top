@@ -4,7 +4,7 @@
     init-worktree NAME [--no-venv]
 
 Creates the sibling directory ../NAME containing:
-  - a worktree of ch_dev on a new branch NAME (off current HEAD)
+  - a worktree of top on a new branch NAME (off current HEAD)
   - a worktree of each manifest repo on a new branch NAME, based on that repo's
     integration branch (ksgpu off 'chord', pirate off 'kms', ...)
   - submodules initialized in each new worktree (e.g. pirate's asdf-cxx)
@@ -23,16 +23,16 @@ from pathlib import Path
 
 # Put this script's own directory on sys.path before the local imports below.
 # The worktree .envrc exports PYTHONSAFEPATH=1 (cwd-shadowing guard), which drops
-# the script dir from sys.path -- so once direnv has run in ch_dev, a bare
-# `import ch_dev_helpers` would fail with ModuleNotFoundError. See README.md.
+# the script dir from sys.path -- so once direnv has run in top, a bare
+# `import ch_top_helpers` would fail with ModuleNotFoundError. See README.md.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import ch_dev_helpers as wl
+import ch_top_helpers as wl
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Create a feature worktree workspace.")
-    ap.add_argument("name", help="feature/worktree name, e.g. ch_dedisp")
+    ap.add_argument("name", help="feature/worktree name, e.g. dev")
     ap.add_argument("--no-venv", action="store_true",
                     help="create worktrees + dotfiles but skip the venv build")
     args = ap.parse_args()
@@ -49,7 +49,7 @@ def main() -> None:
 
     repos = wl.load_manifest()
 
-    # 1. Worktree of ch_dev itself (new branch NAME off current HEAD).
+    # 1. Worktree of top itself (new branch NAME off current HEAD).
     wl.run(["git", "-C", str(wl.ROOT), "worktree", "add", str(worktree), "-b", name])
 
     # 2. Worktree of each repo (new branch NAME based on its integration branch),

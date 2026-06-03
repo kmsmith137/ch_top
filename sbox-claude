@@ -4,14 +4,14 @@
 # agent runs with --dangerously-skip-permissions and never prompts).
 #
 # This is a TRACKED, machine-independent script (no rendering): run it from a
-# feature worktree -- `cd ~/ch/ch_<feature> && ./sbox-claude`. It locates the
+# feature worktree -- `cd ~/ch/<feature> && ./sbox-claude`. It locates the
 # worktree from its own path, resolves the grouping dir + shared .git stores at
 # launch, and INHERITS your shell's PATH + CONDA_PREFIX (so ~/.local/bin, conda,
 # cuda, and the direnv-activated venv all carry in automatically -- launch it
 # from an activated worktree shell). Extra args are passed through to claude.
 #
 # Filesystem access is an ALLOWLIST (default-deny): the container sees ONLY the
-# paths in the toplevel ch_dev's sandbox/ policy --
+# paths in the toplevel top's sandbox/ policy --
 #   sandbox/allow.txt      host paths the agent may see ("ro <path>" / "rw <path>")
 #   sandbox/devices.txt    device nodes (--device; default: all GPUs)
 #   sandbox/env-allow.txt  env vars forwarded from your shell (editor, locale, ...)
@@ -39,13 +39,13 @@ WT="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 [ -d "$WT/.git" ] && die "$WT is the toplevel (the unsandboxed management checkout). \
 Run sbox-claude from a feature worktree, or use plain 'claude' here."
 
-# --- locate the policy (in the TOPLEVEL ch_dev, shared by all worktrees) --------
-# The toplevel = the ch_dev repo's main worktree = the parent of its git
+# --- locate the policy (in the TOPLEVEL top, shared by all worktrees) --------
+# The toplevel = the ch_top repo's main worktree = the parent of its git
 # common-dir (<toplevel>/.git); the grouping dir is one level above that.
 gcd="$(cd "$WT" && git rev-parse --git-common-dir 2>/dev/null)" \
   || die "$WT is not inside a git repo"
 gcd="$(cd "$WT" && cd "$gcd" && pwd)"                 # absolutize -> <toplevel>/.git
-TOPLEVEL="$(dirname "$gcd")"                           # the ch_dev checkout
+TOPLEVEL="$(dirname "$gcd")"                           # the top checkout
 CH="$(dirname "$TOPLEVEL")"                            # grouping dir: toplevel + sibling
                                                       # worktrees + shared claude config
 LISTS="$TOPLEVEL/sandbox"

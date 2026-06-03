@@ -9,7 +9,7 @@
 # One domain per line; an entry matches that domain AND its subdomains (so
 # "anthropic.com" covers api.anthropic.com). "*.foo.com" also works. Inline and
 # full-line "#" comments and blank lines are ignored. Shared by every worktree in
-# the group -- edit and commit here in the toplevel ch_dev. Hard blocks (which
+# the group -- edit and commit here in the toplevel top. Hard blocks (which
 # override allow) live in net-deny.txt.
 #
 # POLICY: the threat we care about is PROMPT INJECTION, so the test for listing a

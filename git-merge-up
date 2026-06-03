@@ -3,9 +3,9 @@
 
     git-merge-up [--dry-run] [--no-ff]
 
-Run from a feature WORKTREE (it FAILS in the toplevel ch_dev). For each repo
-(ch_dev, ksgpu, pirate), take the branch checked out HERE (the feature branch,
-e.g. ch_evrb) and merge it into that repo's integration branch (main / chord /
+Run from a feature WORKTREE (it FAILS in the toplevel top). For each repo
+(top, ksgpu, pirate), take the branch checked out HERE (the feature branch,
+e.g. dev) and merge it into that repo's integration branch (main / chord /
 kms). The merge necessarily happens in the repo's MAIN worktree (where the
 integration branch is checked out, i.e. back in the toplevel checkout) -- the
 output shows that path.
@@ -30,11 +30,11 @@ import sys
 
 # Put this script's own directory on sys.path before the local import below.
 # The worktree .envrc exports PYTHONSAFEPATH=1 (cwd-shadowing guard), which drops
-# the script dir from sys.path -- so once direnv has run in ch_dev, a bare
-# `import ch_dev_helpers` would fail with ModuleNotFoundError. See README.md.
+# the script dir from sys.path -- so once direnv has run in top, a bare
+# `import ch_top_helpers` would fail with ModuleNotFoundError. See README.md.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import ch_dev_helpers as wl
+import ch_top_helpers as wl
 
 
 def main() -> None:
@@ -48,7 +48,7 @@ def main() -> None:
 
     if wl.is_toplevel():
         wl.die("git-merge-up must be run from a feature worktree, not the "
-               "toplevel ch_dev (it lands the branch checked out in the worktree; "
+               "toplevel top (it lands the branch checked out in the worktree; "
                "from the toplevel there is no feature branch to land).")
 
     mode = ["--no-ff"] if args.no_ff else ["--ff-only"]

@@ -3,13 +3,13 @@
 
     git-rebase-down [--dry-run] [-- GIT_REBASE_ARGS...]
 
-For each repo in this workspace (ch_dev, ksgpu, pirate), rebase the branch
-checked out HERE (the feature branch, e.g. ch_evrb) onto that repo's integration
+For each repo in this workspace (top, ksgpu, pirate), rebase the branch
+checked out HERE (the feature branch, e.g. dev) onto that repo's integration
 branch -- the branch checked out in the repo's MAIN worktree (main / chord / kms).
 This is the "sync down" half of the rebase-then-fast-forward workflow: it brings
 the feature branch up to date with the integration branch, keeping history linear.
 
-Run this from a feature WORKTREE (it FAILS in the toplevel ch_dev -- there is no
+Run this from a feature WORKTREE (it FAILS in the toplevel top -- there is no
 feature branch to rebase there; use git-merge-up to land instead). Repos
 already up to date are skipped. Extra args after `--` pass through to git rebase
 (e.g. `-i`). On a conflict, git stops as usual; resolve in that repo, then
@@ -23,11 +23,11 @@ import sys
 
 # Put this script's own directory on sys.path before the local import below.
 # The worktree .envrc exports PYTHONSAFEPATH=1 (cwd-shadowing guard), which drops
-# the script dir from sys.path -- so once direnv has run in ch_dev, a bare
-# `import ch_dev_helpers` would fail with ModuleNotFoundError. See README.md.
+# the script dir from sys.path -- so once direnv has run in top, a bare
+# `import ch_top_helpers` would fail with ModuleNotFoundError. See README.md.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import ch_dev_helpers as wl
+import ch_top_helpers as wl
 
 
 def main() -> None:
@@ -41,7 +41,7 @@ def main() -> None:
 
     if wl.is_toplevel():
         wl.die("git-rebase-down must be run from a feature worktree, not the "
-               "toplevel ch_dev (the toplevel has no feature branch to rebase -- "
+               "toplevel top (the toplevel has no feature branch to rebase -- "
                "use git-merge-up to land a feature instead).")
 
     specs = []

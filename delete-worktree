@@ -3,7 +3,7 @@
 
     delete-worktree NAME [--force]
 
-Removes the per-repo worktrees and the ch_dev worktree for ../NAME, then deletes
+Removes the per-repo worktrees and the top worktree for ../NAME, then deletes
 each repo's feature branch NAME with `git branch -d` (which refuses unless the
 branch is merged into its integration branch). Finally prunes and removes the
 directory.
@@ -28,11 +28,11 @@ from pathlib import Path
 
 # Put this script's own directory on sys.path before the local import below.
 # The worktree .envrc exports PYTHONSAFEPATH=1 (cwd-shadowing guard), which drops
-# the script dir from sys.path -- so once direnv has run in ch_dev, a bare
-# `import ch_dev_helpers` would fail with ModuleNotFoundError. See README.md.
+# the script dir from sys.path -- so once direnv has run in top, a bare
+# `import ch_top_helpers` would fail with ModuleNotFoundError. See README.md.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import ch_dev_helpers as wl
+import ch_top_helpers as wl
 
 
 def repo_problems(repo, wt_path, main_path, integ, feat):
@@ -87,7 +87,7 @@ def main() -> None:
                    + "\n  ".join(problems)
                    + "\n(commit/merge-up, clean up, or use --force)")
 
-    # Remove inner repo worktrees first, then the ch_dev worktree. We force the
+    # Remove inner repo worktrees first, then the top worktree. We force the
     # actual removal (the dir holds ignored build artifacts + .venv); the checks
     # above are what protect tracked/committed work.
     repos = list(wl.load_manifest())

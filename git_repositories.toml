@@ -1,12 +1,12 @@
-# Each repo is cloned into ch_dev/<name> and worktree-added into each ch_X.
-# ch_dev assumes your conda toolchain env is already active (see README.md).
+# Each repo is cloned into top/<name> and worktree-added into each worktree.
+# ch_top assumes your conda toolchain env is already active (see README.md).
 #
 # REMINDER: init-toplevel / init-worktree / delete-worktree are
 # manifest-driven -- they pick up new repos listed here automatically.
-# The venv build (build_venv in ch_dev_helpers.py) is NOT: it hardcodes the
+# The venv build (build_venv in ch_top_helpers.py) is NOT: it hardcodes the
 # per-repo build + editable-install recipe (make order, --no-build-isolation,
 # smoke tests). When you add a repo below, you MUST also add it to the BUILD list
-# in ch_dev_helpers.py, or it will be silently missing from every venv.
+# in ch_top_helpers.py, or it will be silently missing from every venv.
 # (build_venv prints a warning for any manifest repo it does not build.)
 #
 # Order matters: list dependencies before dependents. pipmake -- the build

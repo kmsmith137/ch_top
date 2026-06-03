@@ -8,24 +8,24 @@ This directory is a "container" git repo that holds three sub-repos
 
 Our setup is as follows. The toplevel clone and its feature worktrees live
 together as siblings inside a "grouping" dir -- any dir except $HOME itself (call
-it $CH; ~/ch in these examples, ~/docker in this dev clone). Paths below are
-RELATIVE to $CH: the grouping-dir name is arbitrary, relative paths read the same
-inside the sandbox container, and only fixed system/home paths (e.g. ~/.ssh,
-~/miniforge3) are written absolute. We start by cloning all 4 repos into the
-toplevel (the "toplevel" repos):
+it $CH; ~/ch in these examples). Paths below are RELATIVE to $CH: the grouping-dir
+name is arbitrary, relative paths read the same inside the sandbox container, and
+only fixed system/home paths (e.g. ~/.ssh, ~/miniforge3) are written absolute. We
+start by cloning the container repo (github: ch_top) into the toplevel dir 'top',
+then its sub-repos under it (the "toplevel" repos):
 
-  ch_dev/         -> plain clone pointed at github remote (main branch)   [toplevel]
-  ch_dev/pipmake  -> plain clone pointed at github remote (main branch)
-  ch_dev/ksgpu    -> plain clone pointed at github remote (chord branch)
-  ch_dev/pirate   -> plain clone pointed at github remote (kms branch)
+  top/         -> plain clone of ch_top, pointed at github remote (main branch)  [toplevel]
+  top/pipmake  -> plain clone pointed at github remote (main branch)
+  top/ksgpu    -> plain clone pointed at github remote (chord branch)
+  top/pirate   -> plain clone pointed at github remote (kms branch)
 
 Then, for each feature we want to implement, we make git worktrees for all 4
-repos. For example, if the feature is named 'ch_test', then:
+repos. For example, if the feature is named 'dev', then:
 
-  ch_test/        -> git worktree of ch_dev
-  ch_test/pipmake -> git worktree of ch_dev/pipmake
-  ch_test/ksgpu   -> git worktree of ch_dev/ksgpu
-  ch_test/pirate  -> git worktree of ch_dev/pirate
+  dev/        -> git worktree of top
+  dev/pipmake -> git worktree of top/pipmake
+  dev/ksgpu   -> git worktree of top/ksgpu
+  dev/pirate  -> git worktree of top/pirate
 
 Also in $CH (siblings of the checkouts):
 
