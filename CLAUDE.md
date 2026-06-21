@@ -49,6 +49,9 @@ be useful as a reference. For most tasks you won't need them. From a worktree it
 is a sibling, i.e. ../extern:
 
   ../extern/chord-frb-sifter  -> real-time code "downstream" from the FRB search
+  ../extern/bonsai            -> old dedispersion code from CHIME (now superseded by 'pirate')
+  ../extern/simd_helpers      -> helper library used by bonsai
+  ../extern/rf_kernels        -> helper library used by bonsai
 
 If there is anything that you would like me to add to 'extern', please let me know
 (for example, source code for a third-party library, especially a case when the
