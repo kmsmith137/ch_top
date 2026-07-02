@@ -15,4 +15,4 @@ source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/sbox-common.sh"
 # Interactive bash instead of claude. Build the rcfile in the container's tmpfs from
 # ~/.bashrc + $CLAUDE_ENV_FILE so the shell matches claude's per-command env.
 exec podman "${a[@]}" "$IMAGE" \
-  bash -c 'cat ~/.bashrc "$CLAUDE_ENV_FILE" > /tmp/.sboxrc 2>/dev/null; exec bash -i --rcfile /tmp/.sboxrc'
+  bash -c 'cat ~/.bashrc "$CLAUDE_ENV_FILE" > /tmp/.sboxrc 2>/dev/null; exec bash --rcfile /tmp/.sboxrc -i'
