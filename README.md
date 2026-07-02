@@ -192,11 +192,20 @@ seccomp tweak, no `nvidia-container-toolkit`; see Appendix C.
   multi-repo git logic, and `build_venv`). Imported by the other scripts, so it
   stays a `.py` module (the runnable entry-point scripts are hyphenated and
   extension-less).
-- `sbox-claude` -- the rootless-Podman sandbox launcher: a tracked, machine-
-  independent script you run from a feature worktree (`./sbox-claude`). It
-  self-locates the worktree, inherits your shell's `PATH` + `CONDA_PREFIX`, reads
-  the `sandbox/` policy at launch, and runs `claude --dangerously-skip-permissions`
-  in the container. Refuses to run from the toplevel.
+- `sbox-common.sh` -- the shared setup **sourced** by both sandbox launchers below:
+  self-locates the worktree, inherits your shell's `PATH` + `CONDA_PREFIX`, reads the
+  `sandbox/` policy, starts the egress proxy, and builds the rootless-Podman
+  invocation (mounts, env, devices). Refuses to run from the toplevel. A sourced
+  library, so it keeps its `.sh` extension while the launchers stay extension-less
+  (same convention as `ch_top_helpers.py`).
+- `sbox-claude` -- thin launcher (tracked; run from a feature worktree,
+  `./sbox-claude`): sources `sbox-common.sh`, then runs `claude
+  --dangerously-skip-permissions` in the container. Extra args pass through to claude.
+- `sbox-shell` -- thin launcher (`./sbox-shell`): the **same** container as
+  `sbox-claude` but runs an interactive `bash` instead -- a shell that "sees what
+  claude sees" (identical mounts, env, network, devices, egress proxy), for poking at
+  the sandbox. Its rcfile is `~/.bashrc` + the worktree's `.claude/env.sh`, so the
+  env matches what claude's Bash tool runs each command in.
 - `sbox-net` -- the egress filtering proxy + approval CLI (also tracked, run on the
   host). Routes the agent's HTTP/HTTPS through a per-group domain allowlist;
   `sbox-net allow <domain>` approves a blocked domain, `sbox-net deny <domain>`

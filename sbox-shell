@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# sbox-shell -- open an interactive shell inside this worktree's sandbox, to see
+# exactly what the containerized agent sees: the same mounts, env, network,
+# devices, and egress proxy. The container setup is identical to sbox-claude (both
+# source sbox-common.sh); this just runs bash instead of claude. Run from a feature
+# worktree: `cd ~/ch/<feature> && ./sbox-shell`.
+#
+# The shell's rcfile is ~/.bashrc (conda) followed by the worktree's .claude/env.sh
+# (venv on top) -- the exact env claude's Bash tool runs each command in. Use it to
+# check what a path resolves to, whether a file is visible, or whether egress to
+# some host is allowed, all from claude's point of view.
+set -euo pipefail
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/sbox-common.sh"
+
+# Interactive bash instead of claude. Build the rcfile in the container's tmpfs from
+# ~/.bashrc + $CLAUDE_ENV_FILE so the shell matches claude's per-command env.
+exec podman "${a[@]}" "$IMAGE" \
+  bash -c 'cat ~/.bashrc "$CLAUDE_ENV_FILE" > /tmp/.sboxrc 2>/dev/null; exec bash -i --rcfile /tmp/.sboxrc'
