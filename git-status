@@ -15,6 +15,11 @@ up-to-date are omitted (a fully up-to-date worktree collapses to one line). Run
 from the toplevel top this covers every feature worktree; run from a feature
 worktree it covers only that worktree's own branch.
 
+Finally, a 'WARNING:' line (set off by a blank line) is printed for any checkout
+that is NOT on its EXPECTED branch -- a toplevel repo off its integration branch,
+or a worktree repo off its feature branch. From the toplevel this checks every
+worktree; from a worktree, the toplevel repos + this worktree.
+
 Exits with the worst git exit code across the repos.
 """
 from __future__ import annotations
@@ -36,6 +41,10 @@ def main() -> None:
         for line in relations:
             print(line)
         print()
+    # Any checkout not on its expected branch -- each on its own 'WARNING:' line,
+    # preceded by a blank line so it stands out at the very end of the output.
+    for warning in wl.branch_warnings():
+        print(f"\n{warning}")
     raise SystemExit(rc)
 
 

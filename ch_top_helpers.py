@@ -343,6 +343,50 @@ def branch_relations(workdir=ROOT):
     return lines
 
 
+def branch_warnings(workdir=ROOT):
+    """'WARNING: ...' lines for any checkout that is NOT on its expected branch.
+
+    Expected branch of a checkout:
+      - toplevel (main-worktree) checkout -> its integration branch: 'main' for the
+        container repo ch_top and for pipmake, 'kms' for ksgpu/pirate (from the
+        manifest; the container's 'main' is not in the manifest).
+      - feature-worktree checkout -> the feature branch = the worktree's own dir
+        name (init-worktree puts every repo of a worktree on the same branch NAME).
+
+    Scope = what is 'in sight': from the toplevel, every checkout (the toplevel
+    repos + all worktrees); from a worktree, the toplevel repos + this worktree's
+    checkouts (not sibling worktrees). Returns 'WARNING: <ws>/<repo> is on ...'
+    strings, empty when every checkout is on its expected branch.
+    """
+    workdir = Path(workdir).resolve()
+    manifest = load_manifest()
+    top_dir = repo_main_path(workspace_repos(workdir)[0][1])   # toplevel ch_top checkout
+    if is_toplevel(workdir):
+        ws_dirs = [p for p, _b in _parse_worktrees(top_dir)]   # toplevel + every worktree
+    else:
+        ws_dirs = [top_dir, workdir]                           # toplevel + this worktree
+
+    warnings = []
+    for ws in ws_dirs:
+        if not (ws / ".git").exists():
+            continue                                           # stale/pruned entry -- skip
+        is_top = (ws / ".git").is_dir()
+        for i, (label, path) in enumerate(workspace_repos(ws)):
+            # The container repo (always first) uses its integration branch; the
+            # rest use the manifest branch (toplevel) or the feature branch (worktree).
+            if is_top:
+                expected = "main" if i == 0 else manifest[label]["branch"]
+            else:
+                expected = ws.name
+            cur = current_branch(path)                         # None if detached
+            if cur != expected:
+                ident = repo_name(path) if i == 0 else label   # ch_top, not the dir name
+                on = f"branch '{cur}'" if cur else "a detached HEAD"
+                warnings.append(
+                    f"WARNING: {ws.name}/{ident} is on {on}, expected '{expected}'")
+    return warnings
+
+
 def base_python() -> str:
     """Path to the *base* (non-venv) interpreter, i.e. the conda env's python.
 
