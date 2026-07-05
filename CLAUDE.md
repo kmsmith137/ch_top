@@ -49,6 +49,8 @@ be useful as a reference. For most tasks you won't need them. From a worktree it
 is a sibling, i.e. ../extern:
 
   ../extern/chord-frb-sifter  -> real-time code "downstream" from the FRB search
+  ../extern/ch_frb_io         -> low-level networking for CHIME
+  ../extern/ch_frb_l1         -> top-level FRB search server for CHIME
   ../extern/bonsai            -> old dedispersion code from CHIME (now superseded by 'pirate')
   ../extern/simd_helpers      -> helper library used by bonsai
   ../extern/rf_kernels        -> helper library used by bonsai

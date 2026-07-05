@@ -65,7 +65,7 @@ Contents of `$CH`:
   dev/pirate   -> git worktree of top/pirate
   claude/      -> the sandboxed agent's CLAUDE_CONFIG_DIR (.claude.json,
                   .credentials.json, projects/; per-group, see "Sandbox and GPU")
-  extern/      -> external reference source trees (chord-frb-sifter, bonsai, simd_helpers, rf_kernels)
+  extern/      -> external reference source trees (chord-frb-sifter, ch_frb_io, ch_frb_l1, bonsai, simd_helpers, rf_kernels)
 ```
 We don't use git submodules or git subtrees.
 
