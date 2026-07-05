@@ -11,7 +11,7 @@ directory.
 Refuses (in ANY of the 3 repos), unless --force is given, if the worktree has:
   - uncommitted changes to tracked files, or
   - stray untracked files (gitignored build artifacts / .venv do not count), or
-  - commits not yet merged "up" to the integration branch (main/chord/kms).
+  - commits not yet merged "up" to the integration branch (main/kms).
 A worktree that is merely BEHIND its integration branch (un-rebased) is fine.
 
 --force overrides those three checks for removing the worktree DIR, but branch

@@ -5,7 +5,7 @@
 
 Run from a feature WORKTREE (it FAILS in the toplevel top). For each repo
 (top, ksgpu, pirate), take the branch checked out HERE (the feature branch,
-e.g. dev) and merge it into that repo's integration branch (main / chord /
+e.g. dev) and merge it into that repo's integration branch (main /
 kms). The merge necessarily happens in the repo's MAIN worktree (where the
 integration branch is checked out, i.e. back in the toplevel checkout) -- the
 output shows that path.

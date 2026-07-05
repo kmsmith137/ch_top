@@ -52,7 +52,7 @@ Contents of `$CH`:
 ```
   top/         -> plain clone of ch_top (main branch)  [the "toplevel"]
   top/pipmake  -> plain clone (main branch)
-  top/ksgpu    -> plain clone (chord branch)
+  top/ksgpu    -> plain clone (kms branch)
   top/pirate   -> plain clone (kms branch)
   dev/         -> a feature worktree of top (one per feature)
   dev/pipmake  -> git worktree of top/pipmake
@@ -242,8 +242,8 @@ to see all 4 at once. From inside the sandbox, `git commit` works without a
 prompt (Appendix E).
 
 **Branch workflow (rebase-then-fast-forward).** Each feature is the same branch
-name across all 4 repos; the integration branches are `main` (top, pipmake),
-`chord` (ksgpu), `kms` (pirate). Two
+name across all 4 repos; the integration branches are `main` (top, pipmake) and
+`kms` (ksgpu, pirate). Two
 helpers move commits between a feature branch and its integration branch, keeping
 history linear (feature commits land individually, no merge bubbles). BOTH run
 from the worktree, and each infers the feature branch from what is checked out

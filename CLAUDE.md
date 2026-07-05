@@ -11,7 +11,7 @@ usually ~/ch):
 
   top/         -> plain clone of ch_top, pointed at github remote (main branch)  [toplevel]
   top/pipmake  -> plain clone pointed at github remote (main branch)
-  top/ksgpu    -> plain clone pointed at github remote (chord branch)
+  top/ksgpu    -> plain clone pointed at github remote (kms branch)
   top/pirate   -> plain clone pointed at github remote (kms branch)
   
   extern/      -> external reference source trees (see below)

@@ -18,7 +18,7 @@ branch = "main"
 
 [ksgpu]
 url    = "github:kmsmith137/ksgpu"    # uses your ~/.ssh/config 'github' alias
-branch = "chord"
+branch = "kms"
 
 [pirate]
 url    = "github:kmsmith137/pirate"   # has submodule asdf-cxx (auto-handled)

@@ -5,7 +5,7 @@
 
 For each repo in this workspace (top, ksgpu, pirate), rebase the branch
 checked out HERE (the feature branch, e.g. dev) onto that repo's integration
-branch -- the branch checked out in the repo's MAIN worktree (main / chord / kms).
+branch -- the branch checked out in the repo's MAIN worktree (main / kms).
 This is the "sync down" half of the rebase-then-fast-forward workflow: it brings
 the feature branch up to date with the integration branch, keeping history linear.
 

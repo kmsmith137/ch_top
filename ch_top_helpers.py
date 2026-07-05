@@ -196,7 +196,7 @@ def repo_branch_info(workdir=ROOT):
     repo_name is the repo identity (top / ksgpu / pirate), taken from the
     main-worktree dirname; path is THIS workspace's checkout of it;
     integration_branch is the branch checked out in that repo's main worktree
-    (main / chord / kms); current_branch is what `path` has checked out.
+    (main / kms); current_branch is what `path` has checked out.
     """
     out = []
     for _label, path in workspace_repos(workdir):
@@ -210,7 +210,7 @@ def repo_branch_info(workdir=ROOT):
 
 def repo_main_path(repo_path):
     """The main-worktree path of repo_path's repository -- where the integration
-    branch (main/chord/kms) is checked out. For a worktree checkout this points
+    branch (main/kms) is checked out. For a worktree checkout this points
     back into the toplevel (e.g. ~/ch/dev/pirate -> ~/ch/top/pirate); for
     the toplevel checkout it is repo_path itself."""
     wts = _parse_worktrees(repo_path)
@@ -283,7 +283,7 @@ def branch_relations(workdir=ROOT):
     """Lines describing how each feature worktree's branch relates to its repo's
     integration branch (the branch checked out in that repo's main worktree).
 
-    For each repo in the workspace, X = the main-worktree branch (main/chord/kms)
+    For each repo in the workspace, X = the main-worktree branch (main/kms)
     and Y = a feature-worktree branch. Run from the toplevel top, covers every
     feature worktree of every repo; run from a feature worktree, only that
     worktree's own branch. Returns formatted strings like

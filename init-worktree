@@ -6,7 +6,7 @@
 Creates the sibling directory ../NAME containing:
   - a worktree of top on a new branch NAME (off current HEAD)
   - a worktree of each manifest repo on a new branch NAME, based on that repo's
-    integration branch (ksgpu off 'chord', pirate off 'kms', ...)
+    integration branch (ksgpu off 'kms', pirate off 'kms', ...)
   - submodules initialized in each new worktree (e.g. pirate's asdf-cxx)
   - rendered .envrc + .claude/env.sh (venv activation); the rootless-Podman
     sandbox launcher is the tracked ./sbox-claude, checked out with the worktree
