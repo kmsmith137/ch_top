@@ -38,3 +38,4 @@ ro ~/.profile      # login-shell init
 
 # --- Extra read-write data dirs (add your own; e.g. a shared dataset to write back):
 # rw /data/chord/scratch
+rw /mnt/cs00/data/kmsmith
