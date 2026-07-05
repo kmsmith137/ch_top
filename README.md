@@ -1,10 +1,15 @@
-# ch_top -- personal multi-repo, multi-agent dev workspace
+# ch_top: named worktrees with persistent, sandboxed LLM agents
 
 ## Introduction
 
 This repo is work in progress and very rough around the edges!
 It's my personal system for organizing CHORD development into multiple
-git worktrees, with a small number (usually one) of LLM agents per worktree.
+named, persistent git worktrees, with a small number (usually one) of 
+persistent LLM agents per worktree.
+
+*Note:* not currently suitable for general use, since it contains hardcoded
+CHORD pathnames, repo names, etc. In the future, I may turn it into a general
+tool.
 
  - Orchestration scripts for creating/deleting worktrees with pre-initialized
    dotfiles (`.envrc`, `.claude/*`), and moving commits around.
@@ -16,7 +21,7 @@ git worktrees, with a small number (usually one) of LLM agents per worktree.
  
  - Sandboxing: per-worktree agents run inside a rootless-Podman container
    (launched with `./sbox-claude`) under `--dangerously-skip-permissions`, so they
-   do real work -- including GPU compute -- with no permission prompts, while
+   do real work, including GPU compute, with no permission prompts, while
    being unable to read your secrets or escape the container. (The toplevel
    agent(s) in `top` aren't containerized, only the agents that run in worktrees.)
 
