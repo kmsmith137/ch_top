@@ -111,9 +111,27 @@ read_list() {
   while IFS= read -r line; do expand_path "$line"; done < <(clean_lines "$1")
 }
 
+# --- network namespace (SBOX_NETNS, default 1 = private per-sandbox loopback) ----
+# SBOX_NETNS=1: each sandbox gets its OWN network namespace via pasta, so its
+# 127.0.0.1 is PRIVATE -- agents in different worktrees can bind the same loopback
+# ports without colliding (and cannot reach each other's loopback services).
+# pasta mirrors the host's default interface rather than inventing a NAT subnet
+# (slirp4netns's default 10.0.2.0/24 collides with a real data network on some of
+# our hosts), so internet egress still works; --map-gw makes the HOST's loopback --
+# where the sbox-net proxy listens -- reachable via the container's default
+# gateway, bridged back to the container's 127.0.0.1 by the forwarder below.
+# SBOX_NETNS=0 restores the old shared host netns (shared loopback, and the
+# host's real networks -- e.g. the 10.0.x data nets -- visible in the sandbox).
+SBOX_NETNS="${SBOX_NETNS:-1}"
+if [ "$SBOX_NETNS" = 1 ]; then
+  NETOPT=( --network pasta:--map-gw )
+else
+  NETOPT=( --network host )
+fi
+
 # --- assemble the podman invocation --------------------------------------------
-# --network host  : Model B runs claude inside, so it needs the Anthropic API
-#                   (egress is open; push creds are simply not in the allowlist).
+# network         : see SBOX_NETNS above (claude reaches the Anthropic API through
+#                   the sbox-net proxy; push creds are simply not in the allowlist).
 # --ipc host + --ulimit memlock : CUDA pinned memory / RDMA.
 # --group-add keep-groups : preserve chord-dev/chord-users group reads.
 # IS_SANDBOX=1    : lets claude accept --dangerously-skip-permissions as uid 0
@@ -123,7 +141,7 @@ read_list() {
 #                   per-group -- '/login' once per grouping dir.
 # PATH / CONDA_PREFIX are INHERITED from your shell (venv prepended for safety).
 # Caches go to the tmpfs /tmp (home dirs are read-only or absent under the allowlist).
-a=( run --rm --network host --ipc host --ulimit memlock=-1:-1 --group-add keep-groups
+a=( run --rm "${NETOPT[@]}" --ipc host --ulimit memlock=-1:-1 --group-add keep-groups
     --tmpfs /tmp --tmpfs /run -w "$WT"
     -e HOME="$HOME" -e IS_SANDBOX=1 -e CLAUDE_CONFIG_DIR="$CH/claude"
     -e CLAUDE_ENV_FILE="$WT/.claude/env.sh"
@@ -133,6 +151,21 @@ a=( run --rm --network host --ipc host --ulimit memlock=-1:-1 --group-add keep-g
     -e PATH="$WT/.venv/bin:$PATH" )
 if [ -t 0 ]; then a+=( -it ); fi
 if [ ${#PROXY_ENV[@]} -gt 0 ]; then a+=( "${PROXY_ENV[@]}" ); fi
+
+# --- in-container proxy forwarder (SBOX_NETNS=1 + proxy on) ----------------------
+# The agent keeps the UNCHANGED proxy address http://127.0.0.1:PORT, but under a
+# private netns that loopback is the container's own -- so each launcher prepends
+# $FWD to the command it runs in the container: a socat relay from the container's
+# 127.0.0.1:PORT to the host's loopback (reached via the default gateway, courtesy
+# of pasta --map-gw), where sbox-net actually listens. The gateway is derived at
+# runtime INSIDE the container -- nothing machine- or backend-specific is baked in.
+# Empty (a no-op prefix) when SBOX_NETNS=0 or SBOX_NO_PROXY=1.
+FWD=""
+if [ "$SBOX_NETNS" = 1 ] && [ ${#PROXY_ENV[@]} -gt 0 ]; then
+  FWD='port="${HTTPS_PROXY##*:}"; gw="$(ip -4 route show default | { read -r _ _ g _ && printf %s "$g"; })"; '
+  FWD+='if [ -n "$port" ] && [ -n "$gw" ]; then socat TCP-LISTEN:"$port",bind=127.0.0.1,fork,reuseaddr TCP:"$gw":"$port" 2>/dev/null & '
+  FWD+='else echo "sbox: WARNING: proxy forwarder not started (port=${port:-?} gw=${gw:-?}); proxied egress will fail" >&2; fi; '
+fi
 
 # Forward a curated allowlist of PREFERENCE env vars (editor, locale, pager,
 # terminal, ...) BY NAME from the shell you launch in -- listed in env-allow.txt,

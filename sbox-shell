@@ -13,6 +13,7 @@ set -euo pipefail
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/sbox-common.sh"
 
 # Interactive bash instead of claude. Build the rcfile in the container's tmpfs from
-# ~/.bashrc + $CLAUDE_ENV_FILE so the shell matches claude's per-command env.
+# ~/.bashrc + $CLAUDE_ENV_FILE so the shell matches claude's per-command env. $FWD
+# (from sbox-common.sh) is the proxy-forwarder prelude for the private-netns mode.
 exec podman "${a[@]}" "$IMAGE" \
-  bash -c 'cat ~/.bashrc "$CLAUDE_ENV_FILE" > /tmp/.sboxrc 2>/dev/null; exec bash --rcfile /tmp/.sboxrc -i'
+  bash -c "${FWD}"'cat ~/.bashrc "$CLAUDE_ENV_FILE" > /tmp/.sboxrc 2>/dev/null; exec bash --rcfile /tmp/.sboxrc -i'

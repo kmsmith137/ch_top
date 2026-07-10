@@ -8,7 +8,10 @@
 set -euo pipefail
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/sbox-common.sh"
 
-# Run claude in the container; propagate its exit status.
+# Run claude in the container; propagate its exit status. $FWD (from
+# sbox-common.sh) is the proxy-forwarder prelude for the private-netns mode --
+# empty otherwise -- and bash exec's straight into claude either way.
 rc=0
-podman "${a[@]}" "$IMAGE" claude --dangerously-skip-permissions "$@" || rc=$?
+podman "${a[@]}" "$IMAGE" \
+  bash -c "${FWD}"'exec claude --dangerously-skip-permissions "$@"' claude "$@" || rc=$?
 exit "$rc"

@@ -382,11 +382,12 @@ policy.
 **Caveats.** The proxy filters every client that honors `HTTPS_PROXY` (`pip`,
 `curl`, `requests`, git-over-https, claude's own API) -- which is the
 prompt-injection vector, so it meaningfully shrinks exfiltration. It is *not* yet
-bypass-proof: the container still uses `--network host`, so a deliberately
-malicious payload could open a raw socket around the proxy (enforcing proxy-only
-egress rootless is a harder, later step). Set `SBOX_NO_PROXY=1` before
-`./sbox-claude` to bypass the proxy (open egress) while debugging. Richer approval
-UX (tmux prompt, hold-to-approve, phone push) is sketched in Appendix F.
+bypass-proof: the sandbox's network namespace (pasta) still allows direct egress,
+so a deliberately malicious payload could open a raw socket around the proxy
+(enforcing proxy-only egress rootless is a harder, later step). Set
+`SBOX_NO_PROXY=1` before `./sbox-claude` to bypass the proxy (open egress) while
+debugging. Richer approval UX (tmux prompt, hold-to-approve, phone push) is
+sketched in Appendix F.
 
 ## Gotchas
 
@@ -490,8 +491,9 @@ For a trusted single-user dev box these are acceptable trades; know what they ar
 *inside* the container, so it needs network for the Anthropic API; egress goes
 through `sbox-net`'s per-group domain allowlist (see "Egress proxy"), so the agent
 reaches only approved domains via any `HTTPS_PROXY`-honoring client. It is not yet
-bypass-proof -- `--network host` remains, so a malicious payload could open a raw
-socket around the proxy (tightening that is future work). It **cannot push or
+bypass-proof -- the sandbox's netns (pasta) still permits direct egress, so a
+malicious payload could open a raw socket around the proxy (tightening that is
+future work). It **cannot push or
 exfiltrate via your keys**: `~/.ssh`,
 `~/.git-credentials`, and `~/.netrc` are not in the allowlist (absent in the
 container) and `SSH_AUTH_SOCK` is never passed in (the host agent sockets live in
@@ -502,9 +504,9 @@ authenticates from its own per-group `CLAUDE_CONFIG_DIR` (`~/ch/claude/.credenti
 a separate one-time `/login`). The agent *can* still read that group token and,
 via an allowlisted domain that accepts content, send it out -- but the damage is bounded by your subscription
 scope (rate limits, not metered $), and you can revoke/re-login the group token
-without touching your personal one. To restrict *where* it connects, run a
-`pasta`/`slirp4netns` egress allowlist (only `api.anthropic.com` + your package
-mirror) instead of `--network host` -- recorded as a future tightening, not built now.
+without touching your personal one. The sandbox already runs in its own `pasta`
+netns (see below); restricting *where* it connects at the netns level (only the
+proxy + `api.anthropic.com`) is recorded as a future tightening, not built now.
 
 **Container `uid 0` = your host uid.** With no `/etc/subuid` range the userns is
 single-id, so the container process is `uid 0` mapped to you. Cosmetic (writes are
@@ -518,9 +520,19 @@ ranges you could run as a mapped non-root uid and drop `IS_SANDBOX`.)
 main checkouts' `.git` (Appendix E); only `config` and `hooks/` are protected,
 history is not.
 
-**`--network host` + `--group-add keep-groups`** give the agent your network
-namespace and your supplementary-group reads (`chord-dev`, ...). Fine on a trusted
-single-user box; not a defense against a kernel-exploit-grade adversary.
+**Network namespace: private per sandbox (pasta).** Each sandbox gets its own
+netns via `pasta --map-gw` (`SBOX_NETNS=1`, the default), so `127.0.0.1` is
+private per worktree: agents can bind the same loopback ports without colliding
+and cannot reach each other's loopback services. pasta mirrors the host's default
+interface (no invented NAT subnet, so nothing collides with real `10.0.x` data
+networks), internet egress still works, and the host's loopback -- where
+`sbox-net` listens -- is reached through an in-container `socat` forwarder that
+keeps the proxy at the unchanged `http://127.0.0.1:PORT` (the gateway is derived
+at runtime; nothing machine-specific is baked in). `SBOX_NETNS=0` restores the
+old shared host netns (shared loopback + the host's real networks visible).
+**`--group-add keep-groups`** still grants your supplementary-group reads
+(`chord-dev`, ...). Fine on a trusted single-user box; not a defense against a
+kernel-exploit-grade adversary.
 
 **Default-deny filesystem.** Only the paths in `sandbox/fs-allow.txt` are mounted;
 everything else is simply absent in the container (not even an empty placeholder).
