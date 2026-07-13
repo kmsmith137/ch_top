@@ -10,10 +10,12 @@ process below.
 ## Background reading (orchestrator)
 
 - Read pirate/notes/stoppable_class.md and pirate/notes/thread_backed_class.md
-  into context. They define the patterns AND contain the distilled rules from
-  a previous review ("Locking and condition variables", "Spawning, joining,
-  and teardown", "pybind11 bindings", "Reviewer checklist") -- the review
-  should measure the code against all of them.
+  into context. They define the patterns AND contain distilled rules from a
+  previous review ("Error reporting", "pybind11 bindings", "Reviewer
+  checklist") -- the review should measure the code against all of them.
+- Read the "Concurrency" section of pirate/notes/cpp.md: the general locking /
+  condition-variable / thread-lifecycle rules live there (the pattern docs
+  point at it), and they are review criteria too.
 - Also read the "GIL rules" and "Member bindings and thread-safety" sections
   of pirate/notes/pybind11.md (each class's pybind11 bindings are in scope).
 - Do NOT read existing markdown plans (plans/*.md in any repo): the review
