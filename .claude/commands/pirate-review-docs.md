@@ -11,8 +11,8 @@ You have two jobs for the pirate_frb docs (in the `pirate/` sub-repo):
   2. Maintain the auto-cross-linking (the autolink Sphinx extension).
 
 This is a LARGE task. Split it among parallel subagents and aggregate the
-results, the same way as the other review commands (pybind11-review,
-stoppable-class-review). Do NOT git commit (per CLAUDE.md) -- leave all changes
+results, the same way as the other review commands (pirate-review-pybind11,
+pirate-review-stoppable). Do NOT git commit (per CLAUDE.md) -- leave all changes
 for the user to review. Best-effort throughout: a wrong "fix" to the docs is
 worse than a stale sentence, so verify before you edit.
 
