@@ -67,11 +67,11 @@ to ksgpu):
   ../extern/gpu_mm            -> real-time code "downstream" from the FRB search
   ../extern/n2k               -> real-time code "downstream" from the FRB search
 
-The old CHIME FRB search code (split across ~10 repos):
+The old CHIME FRB search code (split across 11 repos):
 
   ../extern/bonsai            -> dedispersion transform [dstn-sps]
   ../extern/ch_frb_io         -> file and networking IO code [kms_chord]
-  ../extern/ch_frb_l1         -> top-level FRB search server for CHIME [kms_sps]
+  ../extern/ch_frb_l1         -> top-level FRB search server for CHIME [dstn-master]
   ../extern/ch_frb_rfi        -> helper functions for constructing RFI transform chains
   ../extern/pyclops           -> python linkage (low-budget homegrown pybind11)
   ../extern/rf_kernels        -> x86 compute kernels (not gpu kernels)
