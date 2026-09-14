@@ -67,7 +67,7 @@ to ksgpu):
   ../extern/gpu_mm            -> real-time code "downstream" from the FRB search
   ../extern/n2k               -> real-time code "downstream" from the FRB search
 
-The old CHIME FRB search code (split across 11 repos):
+The old CHIME FRB search code (split across 12 repos):
 
   ../extern/bonsai            -> dedispersion transform [dstn-sps]
   ../extern/ch_frb_io         -> file and networking IO code [kms_chord]
@@ -80,6 +80,7 @@ The old CHIME FRB search code (split across 11 repos):
   ../extern/simpulse          -> python2 simulation code (vendored into 'pirate' with modifications)
   ../extern/sp_hdf5           -> higher-level interface for libhdf5 [kms_1_10]
   ../extern/spshuff           -> supports a compressed format [apr_slow_pulsar]
+  ../extern/web_viewer        -> web viewer, for inspecting "offline" analysis
 
 These repos should be on main/master branches, except for cases where [branch_name]
 is noted in square brackets.
