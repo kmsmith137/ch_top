@@ -1,10 +1,10 @@
 ---
-description: Full test sweep (rebuild, ksgpu + pirate unit tests, toy + production quickstart searches with offline dedispersion); ~2.5 hours
+description: Full test sweep (rebuild, ksgpu + pirate unit tests, chimefrb spot checks, toy + production quickstart searches with offline dedispersion); ~2.5 hours
 ---
 
 Please run the full test sweep for the ch repos. Work from the worktree
 root (the directory containing ksgpu/, pirate/, pipmake/). Total expected
-runtime is roughly 2.5 hours; most of it is steps 5 and 6, and step 6 alone
+runtime is roughly 2.5 hours; most of it is steps 6 and 7, and step 7 alone
 is over an hour. The per-step estimates below are wallclock times actually
 observed on cf05 -- treat them as a rough scale, not a budget: they move with
 the hardware and with how much the unit-test suite has grown. Run the steps IN
@@ -22,22 +22,49 @@ Ground rules (these mirror CLAUDE.md; they apply throughout):
   invisible in the buffer. C++ output flushes itself; python output does not.
 - Keep all scratch files (logs, pid files, config copies) in an untracked
   location: the session scratch dir, /tmp, or pirate/plans/ (plans are
-  never git-added).
+  never git-added). Put anything you would be sorry to lose -- the logs a
+  step's verdict rests on -- in pirate/plans/. The session scratch dir does
+  NOT survive a machine reboot, and a reboot mid-sweep otherwise takes the
+  evidence for every step you have already passed with it.
 - Waiting is not a plain `sleep`: the harness BLOCKS a foreground sleep, so
   `sleep 180; check` is refused outright. To wait for something, background
   an until-loop that exits when the condition is met -- `until <check>; do
   sleep N; done` with run_in_background -- and let the completion
-  notification wake you. Most of this sweep is waiting (a ~25 min production
-  stream, two ~20 min test suites), so get this right early rather than
+  notification wake you. Most of this sweep is waiting (a ~20 min production
+  stream, a ~10 min test suite and a ~90 min one), so get this right early
+  rather than
   burning a tool call on the refusal.
+- Anything that runs longer than ~15 minutes should be DETACHED rather than
+  launched as a tracked background task -- step 7 above all (~90 min):
+
+      setsid nohup env PYTHONUNBUFFERED=1 bash -c \
+          '(time CMD) > pirate/plans/step7.log 2>&1; echo "exit=$?" >> pirate/plans/step7.log' \
+          >/dev/null 2>&1 < /dev/null &
+
+  then poll that log from later tool calls. The harness kills tracked
+  background tasks when it believes the machine is low on memory, and on
+  this machine it always believes so: step 0's hugepage pool is 1536 GiB of
+  PINNED memory, so MemAvailable can never exceed ~24% of MemTotal however
+  idle the box is. Step 7 was killed twice that way while peaking at 3.7 GB
+  RSS with 449 GB free. A detached process is not tracked, so it survives --
+  and it also survives the agent session restarting, which a tracked task
+  does not.
+- `pgrep -f` and `pkill -f` match YOUR OWN command line: the pattern you
+  are searching for is sitting in the `bash -c` that does the searching. So
+  a watcher like `until ! pgrep -f "bin/ksgpu test"; do sleep 10; done`
+  never exits (it keeps finding itself), and `pkill -f memmon.sh` kills the
+  very tool call that runs it. Both happened during the run these notes come
+  from; the watcher spun for five days. Defeat it with a bracket in the
+  pattern -- `pgrep -f 'pirate_fr[b] test$'` -- which still matches the
+  target but not the literal text of your own command line.
 - At the very start, record the sweep's start time -- `touch
   $SCRATCH/sweep-start` -- so the final inventory can tell what this run
   created from what was already on disk.
 
 ## Helper scripts
 
-`pirate/misc/ch_test/` holds helpers for the mechanical parts of steps 4 and
-5: launching a pipeline, checking the shutdown cascade, scanning logs, the
+`pirate/misc/ch_test/` holds helpers for the mechanical parts of steps 5 and
+6: launching a pipeline, checking the shutdown cascade, scanning logs, the
 truth cross-check, the production preflight, the loopback config rewrite,
 and the inventory table. Read `pirate/misc/ch_test/README.md` first; each
 script also takes --help.
@@ -49,6 +76,44 @@ your tool calls, and bash async jobs inherit SIGINT=SIG_IGN into python, so
 looking: they print numbers, and the judgment about what those numbers mean
 stays yours. If a script's output disagrees with what you see in the logs,
 believe the logs and treat the script as the bug (see "Bugs" below).
+
+## Step 0: check the hugepage configuration (seconds -- but a HARD GATE)
+
+This machine's hugepage pool gets switched to a smaller "debugging" layout
+(256+256 GiB) from time to time. The sweep is only meaningful in the
+intended layout, 768 GiB per NUMA node. Check it before anything else:
+
+    for f in /sys/devices/system/node/node*/hugepages/hugepages-2048kB/nr_hugepages; do
+        echo "$f = $(cat $f)"
+    done
+    grep -E '^HugePages_(Total|Free)' /proc/meminfo
+
+Every node must read 393216 (393216 x 2 MiB = 768 GiB), and
+HugePages_Total must be 786432 (= 1536 GiB across the two nodes).
+
+If it does not match, STOP: do not run step 1, and do not run any later
+step. Report the numbers you found in the chat, quote these commands for
+the user to run, and wait for them:
+
+    echo 393216 | sudo tee /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages
+    echo 393216 | sudo tee /sys/devices/system/node/node1/hugepages/hugepages-2048kB/nr_hugepages
+
+Do NOT run those yourself. They need sudo, and reconfiguring the machine is
+the user's call, not yours. Once the user says they have run them, re-run
+the check above and start the sweep only when both nodes read 393216.
+
+Why this is a gate and not a warning: step 6 starts two production servers
+at 'host_memory_per_server: 768 GiB' each, so a smaller pool fails that
+step's preflight -- but not until ~45 minutes in, after steps 1-5 have
+already been paid for. And the pool is pinned memory, so the two layouts
+leave the machine with different amounts of ordinary RAM: timings and
+memory behaviour measured under one do not carry over to the other, which
+makes a sweep run under the wrong layout misleading rather than merely
+incomplete. Checking costs a second.
+
+(HugePages_Free well below HugePages_Total is a different problem -- some
+process is still holding the pool. That is a stale-process question, not a
+configuration one; see the leftover-process checks in step 5.)
 
 ## Step 1: rebuild both repos, then refresh the venv (fast if up to date)
 
@@ -102,7 +167,64 @@ command must exit 0.
 
 Must exit 0 with all tests passing.
 
-## Step 4: toy quickstart search (~5 min)
+## Step 4: chimefrb spot checks (~2 min)
+
+A "spot check" runs one piece of the OLD CHIME FRB search -- the 11 repos
+in ../extern that pirate supersedes -- and compares it against pirate's
+equivalent. They are one-off correctness checks from the porting work, and
+are deliberately NOT dispatched from `pirate_frb test`, since they need the
+old pipeline built and the normal test suite must never require that. So
+this sweep is the only thing that runs them regularly. Background:
+pirate/notes/chimefrb.md, appendices A and B.
+
+Two commands, both from the pirate/ directory:
+
+    misc/chimefrb/build_oldpipe.sh                  # ~1 min
+    misc/chimefrb/spot_checks/run_spot_tests.py     # ~40 s
+
+The first builds the old pipeline into misc/chimefrb/oldpipe/ -- gitignored,
+per-worktree, and safe to delete and rebuild at any time. It never touches
+../extern (each repo is rsynced into oldpipe/src/ and patched there). Just
+run it: it takes a minute whether or not oldpipe/ already exists, and the
+spot-check drivers link against what it produces.
+
+The second runs each check as a separate process and ends with "N/M spot
+tests passed". All must pass and it must exit 0. `-l` lists the checks, and
+a name argument runs one, which is how to iterate on a failure; a check's
+test.py also runs directly, which is easier to read when debugging one.
+
+- The build needs a conda env named `chimefrb` (python 2.7 plus the old
+  C/C++ libraries) at /home/kmsmith/miniforge3/envs/chimefrb. It SHOULD
+  ALREADY EXIST: the sandbox cannot create one, since miniforge3 is mounted
+  read-only and the conda channels are not on the egress allowlist. If it
+  is missing, STOP and ask the user.
+
+- Several checks run pirate GPU transforms, so the GPUs must be free, as
+  for the unit tests.
+
+- An ImportError out of `pirate_frb.chimefrb` is NOT a failed comparison:
+  it means the compiled pirate library is older than the python importing
+  from it, i.e. step 1 did not really rebuild. Fix that and rerun. (This is
+  what a skipped step 1 looks like here -- 12 of 14 checks died on
+  `cannot import name 'AssembledChunk'` -- so it is worth recognizing on
+  sight rather than debugging as a broken port.)
+
+- Judging a numeric disagreement: each check states a tolerance and says
+  WHY in the same place, so read that before deciding anything. Exact
+  agreement is often the wrong expectation -- bonsai and pirate use
+  dispersion constants that differ by 4.8e-7, and the old side is built
+  -march=haswell with -ffast-math, so float32 agreement is at the 1e-5
+  level. The checks are deterministic (each generates its input from a seed
+  written down in its test.py), so a real disagreement reproduces; one that
+  does not reproduce is itself worth reporting.
+
+If the old pipeline fails to BUILD, misc/chimefrb/README.md has the
+details: which branch each extern repo must be on and why, what the two
+patches do, and two known issues. Several of its constraints look arbitrary
+and are not (the `hdf5=1.10` pin especially), so read it before changing
+anything.
+
+## Step 5: toy quickstart search (~5 min)
 
 Run the "toy search" end-to-end: fake X-engine -> FRB search server ->
 grouper -> sifter, plus RPC monitoring, streaming to disk, a random-write
@@ -175,9 +297,15 @@ Random-write RPC (while the stream is still active):
 
 Cancel + shutdown cascade:
 
-- End the stream with rpc_cancel_stream (by stream name), then verify via
-  rpc_show_streams: status "inactive (cancelled)", files queued == written,
-  errored == 0.
+- End the stream with
+  `pirate_frb rpc cancel_stream -a STREAM_NAME ADDRESS...`. The flag is
+  `-a`/`--stream-name`; `-s` is start_stream's filename STEM, and passing
+  `-s` here fails with a bare argparse usage error that never mentions
+  streams. Then verify via rpc_show_streams: status "inactive (cancelled)",
+  files queued == written, errored == 0.
+  Check the exit status carefully here: `cmd | tail -5` reports TAIL's
+  status, not cmd's, so a failed RPC reads as a success. Use
+  ${PIPESTATUS[0]}, or do not pipe.
 - Send SIGINT to the sifter (the END of the pipeline) and verify the
   shutdown cascades: within a few seconds ALL five processes must exit.
   `pirate/misc/ch_test/check-cascade.sh LOGDIR sifter` does this: it finds
@@ -195,7 +323,7 @@ Cancel + shutdown cascade:
       sifter send failing -- either is a valid cascade edge)
     - rpc_status: subscribe_files error, then "RPC client(s) stopped"
   Verify by PID that nothing lingers for more than ~10 seconds -- EXCEPT the
-  production server (step 5), which takes ~25 s: it prints its RuntimeError
+  production server (step 6), which takes ~25 s: it prints its RuntimeError
   within ~2 s like everything else, then spends the rest tearing down the
   1.5 TiB hugepage pool and 80 GiB of GPU memory. Judge the cascade by when
   the error is PRINTED, not when the process disappears; the toy server exits
@@ -203,12 +331,13 @@ Cancel + shutdown cascade:
   directly -- read those, and expect every process (production server
   included) to be within a few seconds. Afterwards confirm the resources
   actually came back (HugePages_Free in /proc/meminfo, nvidia-smi at 0 MiB).
-  (If you check for leftovers with pgrep -f, beware matching your own
-  watcher's command line. Note also that a process which has exited but not
-  been reaped stays visible as a zombie -- PID 1 does not reap in this
-  sandbox -- and a zombie still answers kill(pid, 0), so a naive liveness
-  check reports long-dead processes as alive. Read the state field of
-  /proc/PID/stat and treat 'Z' as exited.)
+  (If you check for leftovers with pgrep -f, remember that it matches your
+  own command line -- see the ground rules for the bracket trick. Note also
+  that a process which has exited but not been reaped stays visible as a
+  zombie -- PID 1 does not reap in this sandbox -- and a zombie still
+  answers kill(pid, 0), so a naive liveness check reports long-dead
+  processes as alive. Read the state field of /proc/PID/stat and treat 'Z'
+  as exited.)
 
 Offline dedisperser:
 
@@ -255,9 +384,9 @@ implausible numbers is still a problem, and the numbers are the point:
   (early-trigger trees); both are inside the window it uses.
 - Scan every log for unexpected errors/warnings from before the SIGINT.
 
-## Step 5: production quickstart search (~30-45 min)
+## Step 6: production quickstart search (~30-45 min)
 
-Repeat the whole step-4 exercise using the "Running a production search
+Repeat the whole step-5 exercise using the "Running a production search
 (cf00/cf05)" section of quick_start.md, with these deviations:
 
 - Run EVERYTHING on the same node, including the fake X-engine (ignore the
@@ -272,7 +401,7 @@ Repeat the whole step-4 exercise using the "Running a production search
   the GPUs are visible and idle, the rpc_ip_addrs globs resolve and are
   exempt from the egress proxy, and loopback's MTU clears min_data_mtu.
   Run it when the GPUs are actually quiet: the idleness check reports any
-  resident memory, so running it while step 3 or 6 is still going produces
+  resident memory, so running it while step 3 or 7 is still going produces
   a 'warn gpu N: ... MiB used' that is just the unit tests, not a real
   problem. If anything is missing -- e.g. the sandbox was launched without
   the production storage mounts -- STOP and ask the user; the sandbox can only
@@ -303,7 +432,7 @@ Repeat the whole step-4 exercise using the "Running a production search
   cascade must take down the children too (check-cascade.sh tracks child
   pids, so they appear in its table as "grouper.child"). Give the server
   line a generous timeout -- ~300 s, since production init takes a minute.
-- Use `-D` here too, for the same reason as in step 4: the point is to
+- Use `-D` here too, for the same reason as in step 5: the point is to
   exercise the cancel path, and only -D guarantees the stream is still
   active when you cancel it. The arithmetic for -d is given below only so
   you can recognize a stream that expired on its own.
@@ -320,12 +449,12 @@ Repeat the whole step-4 exercise using the "Running a production search
   over a couple of minutes before trusting an ETA -- the first ~30 s reads
   far slower, because the stream only starts filling once the ring buffer
   has caught up.
-- rpc_rand_write, cancel, cascade: as in step 4.
+- rpc_rand_write, cancel, cascade: as in step 5.
 - Offline dedisperser: run on the 1000-file acqdir with the dedispersion
   config quick_start.md specifies for production acquisitions (NOTE: it
   differs from the config the server was started with). Expect a few
   minutes (~3 chunks/s at production scale).
-- Truth cross-check as in step 4, but with the production band and a warmup
+- Truth cross-check as in step 5, but with the production band and a warmup
   allowance:
 
       pirate/misc/ch_test/check-truth.py --xengine-log LOGDIR/xengine.log \
@@ -344,7 +473,7 @@ Repeat the whole step-4 exercise using the "Running a production search
   the NO_PROXY node-local exemption in sbox-common.sh; report it (the user
   must relaunch the sandbox) rather than working around the proxy.
 
-## Step 6: pirate full unit tests (~90 min)
+## Step 7: pirate full unit tests (~90 min)
 
     cd pirate && pirate_frb test
 
@@ -393,7 +522,7 @@ nothing to suggest is a fine answer; don't invent friction.
 
 Finish with a complete report containing ALL of the following:
 
-- Pass/fail for each of the six steps.
+- Pass/fail for each step, 0 through 7.
 - The timings you observed: build time, per-step durations, server init
   time, files/sec while streaming, offline chunks/sec.
 - The acquisition inventory table (see below).
@@ -428,4 +557,4 @@ Format:
 
 Do NOT delete any of it -- the user decides what to keep. But DO mark the
 rows that are throwaway scratch (e.g. acqdirs from a debugging experiment
-rather than from steps 4 and 5) so the user can clean up selectively.
+rather than from steps 5 and 6) so the user can clean up selectively.
