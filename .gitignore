@@ -1,4 +1,4 @@
-# Inner repos: managed as plain clones via git_repositories.toml, not tracked.
+# Sub-repos: plain clones listed in xwt.toml, not tracked here.
 /pipmake/
 /ksgpu/
 /pirate/
@@ -7,7 +7,6 @@
 .venv/
 .direnv/
 .envrc
-.claude/env.sh
 .claude/settings.json
 .claude/settings.local.json
 .agent/
@@ -18,6 +17,5 @@
 plans/
 research
 scratch*.txt
-__pycache__/
-*.pyc
 *~
+\#*#
