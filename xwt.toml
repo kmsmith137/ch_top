@@ -1,0 +1,33 @@
+# xwt config for ch_top: the toplevel is ~/ch/top, worktrees are ~/ch/NAME.
+
+# ch_top's integration branch; each sub-repo's is in its table. The
+# checkouts in ~/ch/top must be on these branches.
+branch = "main"
+
+# In dependency order: pipmake is the build backend for ksgpu and pirate.
+[repo.pipmake]
+url = "github:kmsmith137/pipmake"   # 'github' is an ~/.ssh/config host alias
+branch = "main"
+
+[repo.ksgpu]
+url = "github:kmsmith137/ksgpu"
+branch = "kms"
+
+[repo.pirate]
+url = "github:kmsmith137/pirate"    # has a submodule (asdf-cxx)
+branch = "kms"
+
+[envrc]
+conda = "dev"      # or leave out, to use whatever env the shell has active
+
+[envrc.export]
+# The workspace root holds the ksgpu/ source dir, which would shadow the
+# installed package (README, "cwd shadowing").
+PYTHONSAFEPATH = "1"
+
+[envrc.venv]
+# Editable installs' .pth files import `editables` at startup, before the
+# conda env's site-packages are on sys.path: the venv needs its own copy.
+install = ["editables"]
+editable = ["pipmake", "ksgpu", "pirate"]
+pip_args = ["--no-build-isolation"]   # build with the conda toolchain and the venv's pipmake
