@@ -1,5 +1,7 @@
 ---
+name: ch-review-docs
 description: Review the pirate Sphinx docs for correctness (esp. stale text) and maintain the auto-cross-linking
+disable-model-invocation: true
 ---
 
 You have four jobs for the pirate_frb docs (in the `pirate/` sub-repo):

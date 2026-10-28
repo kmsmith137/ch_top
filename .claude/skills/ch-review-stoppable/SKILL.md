@@ -1,5 +1,7 @@
 ---
+name: ch-review-stoppable
 description: Multi-agent review of pirate's stoppable / thread-backed class patterns (stop cascades, wakeups, thread lifecycle, error propagation)
+disable-model-invocation: true
 ---
 
 Please carefully review every stoppable and thread-backed class in pirate

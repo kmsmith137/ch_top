@@ -1,5 +1,7 @@
 ---
+name: ch-test
 description: Full test sweep (rebuild, ksgpu + pirate unit tests, chimefrb spot checks, toy + production quickstart searches with offline dedispersion); ~2.5 hours
+disable-model-invocation: true
 ---
 
 Please run the full test sweep for the ch repos. Work from the worktree
@@ -15,7 +17,6 @@ Ground rules (these mirror CLAUDE.md; they apply throughout):
 
 - Build with `make -j 32`, never plain `make`.
 - Do NOT git commit, merge, rebase, pull, or push.
-- Never bypass the network egress proxy.
 - Set PYTHONUNBUFFERED=1 in the environment of every long-running process
   whose stdout you redirect to a file: python block-buffers redirected
   stdout, so log lines (including the readiness markers below) otherwise sit
@@ -131,16 +132,21 @@ compile error.
 
 Then refresh the venv's editable installs, from the worktree root:
 
-    ./init-venv .
+    xwt venv
 
 `make` rebuilds the native libs but does NOT update what pip has installed,
 and a merge may have bumped a version or added a `[project.scripts]` entry
 point. A stale editable install is how `ksgpu test` ends up "command not
-found" while the source tree is perfectly fine. init-venv reinstalls
-pipmake/ksgpu/pirate in dependency order (pirate requires `ksgpu >= 1.3.0`,
-so ksgpu MUST be reinstalled first, or pip tries to fetch ksgpu from PyPI)
-and finishes with an import smoke test. It must exit 0. It is a fast no-op
-when everything is already current.
+found" while the source tree is perfectly fine. `xwt venv` reinstalls
+pipmake/ksgpu/pirate in the order xwt.toml lists them, which is dependency
+order (pirate requires `ksgpu >= 1.3.0`, so ksgpu MUST be reinstalled first,
+or pip tries to fetch ksgpu from PyPI). It must exit 0.
+
+Then check that both packages import, from a directory outside the
+workspace (the workspace root's ksgpu/ source dir would otherwise shadow
+the installed package; see README.md, "cwd shadowing"):
+
+    cd /tmp && python -c 'import ksgpu, pirate_frb; print("import ok")'
 
 Do NOT `pip uninstall` anything first. `pip install -e .` already replaces
 the old version, and it builds the new wheel BEFORE uninstalling the old
@@ -148,11 +154,8 @@ one, so a failed rebuild leaves the venv intact; uninstalling first turns a
 build failure into an unusable venv that cannot be repaired without network
 access.
 
-init-venv needs no network as long as every declared dependency is already
-satisfied. If it does reach for PyPI, something genuinely new is needed
-(a newly added dependency, or a from-scratch `--recreate` venv, which must
-fetch `editables`): report the blocked domain per CLAUDE.md, do NOT work
-around it.
+`xwt venv` needs no network when the venv already exists; only a
+from-scratch `xwt venv --recreate` downloads (it fetches `editables`).
 
 ## Step 2: ksgpu unit tests (~3 min)
 
@@ -195,9 +198,8 @@ test.py also runs directly, which is easier to read when debugging one.
 
 - The build needs a conda env named `chimefrb` (python 2.7 plus the old
   C/C++ libraries) at /home/kmsmith/miniforge3/envs/chimefrb. It SHOULD
-  ALREADY EXIST: the sandbox cannot create one, since miniforge3 is mounted
-  read-only and the conda channels are not on the egress allowlist. If it
-  is missing, STOP and ask the user.
+  ALREADY EXIST. If it is missing, STOP and ask the user: agents don't
+  install software.
 
 - Several checks run pirate GPU transforms, so the GPUs must be free, as
   for the unit tests.
@@ -334,8 +336,8 @@ Cancel + shutdown cascade:
   (If you check for leftovers with pgrep -f, remember that it matches your
   own command line -- see the ground rules for the bracket trick. Note also
   that a process which has exited but not been reaped stays visible as a
-  zombie -- PID 1 does not reap in this sandbox -- and a zombie still
-  answers kill(pid, 0), so a naive liveness check reports long-dead
+  zombie (for as long as its parent is alive and doesn't wait for it), and a
+  zombie still answers kill(pid, 0), so a naive liveness check reports long-dead
   processes as alive. Read the state field of /proc/PID/stat and treat 'Z'
   as exited.)
 
@@ -403,12 +405,10 @@ Repeat the whole step-5 exercise using the "Running a production search
   Run it when the GPUs are actually quiet: the idleness check reports any
   resident memory, so running it while step 3 or 7 is still going produces
   a 'warn gpu N: ... MiB used' that is just the unit tests, not a real
-  problem. If anything is missing -- e.g. the sandbox was launched without
-  the production storage mounts -- STOP and ask the user; the sandbox can only
-  be changed from outside.
-- The production config assumes the node's physical 10.x.x.x data NICs,
-  which are not visible inside the sandbox (private network namespace).
-  Rewrite them to loopback, into an UNTRACKED file (never edit the tracked
+  problem. If anything is missing, STOP and ask the user.
+- The production config assumes the node's physical 10.x.x.x data NICs.
+  Rewrite them to loopback, so the test's data traffic stays off the node's
+  real data network, into an UNTRACKED file (never edit the tracked
   config):
 
       pirate/misc/ch_test/make-loopback-config.py \
@@ -468,10 +468,6 @@ Repeat the whole step-5 exercise using the "Running a production search
   documented "boundary effects near the beginning of the acquisition").
   Those are reported as "warm" and excluded from the pass/fail count, so
   check how many there were rather than only the exit status.
-- Diagnostic note: if an rpc command to the host's own IP fails with
-  "HTTP proxy returned response code 403", the sandbox launcher predates
-  the NO_PROXY node-local exemption in sbox-common.sh; report it (the user
-  must relaunch the sandbox) rather than working around the proxy.
 
 ## Step 7: pirate full unit tests (~90 min)
 

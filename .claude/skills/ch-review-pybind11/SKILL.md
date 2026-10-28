@@ -1,5 +1,7 @@
 ---
+name: ch-review-pybind11
 description: Multi-agent review of the pybind11 bindings in ksgpu and pirate (GIL correctness, array converters, general binding bugs)
+disable-model-invocation: true
 ---
 
 Please carefully review the pybind11 bindings in both ksgpu and pirate.

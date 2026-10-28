@@ -1,5 +1,7 @@
 ---
+name: ch-release
 description: Prepare and validate PyPI sdists for pipmake/ksgpu/pirate (version gate, sdist build, completeness check, install-from-sdist test); ~30-45 min
+disable-model-invocation: true
 ---
 
 Prepare sdist .tar.gz files for uploading to PyPI, and verify that they
@@ -15,11 +17,10 @@ Ground rules (these mirror CLAUDE.md; they apply throughout):
 
 - Do NOT git commit, merge, rebase, pull, push, or fetch. All git
   comparisons below are against the LOCAL main branch.
-- Never bypass the network egress proxy. In particular, pypi.org is
-  normally NOT on the allowlist, which is why every pip install below uses
-  --no-build-isolation: pip's default isolated build env tries to download
-  setuptools/wheel from PyPI and dies with proxy-403 retries. Using
-  --no-build-isolation is the prescribed procedure, not a proxy workaround.
+- Every pip install below uses --no-build-isolation, so that builds use the
+  venv's own pipmake and setuptools; this is the procedure that was
+  validated. pip's default isolated build env would download its build
+  dependencies from PyPI instead.
 - The Bash tool timeout (default 2 min, max 10 min) is too short for the
   compiling installs, and run_in_background does NOT exempt a command from
   it. Launch the two compiling installs (ksgpu, pirate) fully detached:
@@ -32,8 +33,8 @@ Ground rules (these mirror CLAUDE.md; they apply throughout):
   pirate's autogenerate_kernel.py, but the same trap could recur in any
   new build-time python step): make -jN running N python processes that
   each import numpy, where each OpenBLAS starts one thread per core; N^2
-  threads can exceed the sandbox's cgroup pids.max (2048 here, vs 64
-  cores), and OpenBLAS reacts to pthread_create failure by signaling its
+  threads can exceed a process-count limit (the old sandbox's was 2048,
+  on 64 cores), and OpenBLAS reacts to pthread_create failure by signaling its
   process group, killing the whole make run. Look for "OpenBLAS
   blas_thread_init: pthread_create failed" earlier in the log; the fix is
   os.environ.setdefault('OPENBLAS_NUM_THREADS', '1') (and OMP_NUM_THREADS)
@@ -46,8 +47,9 @@ Ground rules (these mirror CLAUDE.md; they apply throughout):
 ## Step 0: preconditions
 
 This task must run in a "release" workspace: a worktree created with
-`init-worktree -r` (or whose venv was rebuilt with `init-venv --release`),
-whose venv is BARE -- no editable installs of the packages under test.
+`xwt new NAME --no-venv` followed by `xwt venv --bare` in it (or an existing
+worktree whose venv was rebuilt with `xwt venv --recreate --bare`), whose
+venv is BARE -- no editable installs of the packages under test.
 Verify all of:
 
 - You are in a worktree: `.git` in the worktree root is a *file*
@@ -59,7 +61,7 @@ Verify all of:
 - `pip show build` succeeds (python-build is needed for the sdist builds).
 
 If the venv has editable installs, STOP and tell the user: this workspace
-was not created with init-worktree -r, and testing sdist installs here
+doesn't have a bare venv (see above), and testing sdist installs here
 would be meaningless.
 
 ## Step 1: branch/version gate
@@ -202,7 +204,7 @@ Finish with a report containing:
   bumps you found), with file references -- remind the user to review
   (git diff) and commit them by hand.
 - A reminder to merge each branch that is ahead of main into main (the
-  user does this by hand with the git-* scripts).
+  user does this by hand).
 - If pirate is ahead of main: a reminder to rebuild and deploy the pirate
   docs with ./docs/deploy.sh (run from pirate/).
 - Timings observed (sdist builds, ksgpu/pirate compiles, test runs), and
